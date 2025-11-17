@@ -3,55 +3,99 @@
 print("----- Flask Application is starting from THIS file! -----")
 
 from flask import Flask, request, jsonify
-import mysql.connector
 from werkzeug.security import generate_password_hash, check_password_hash
-from flask_cors import CORS
-from datetime import date
+from datetime import date, datetime
 from functools import wraps
 import os
 import jwt
-import datetime
 import requests
 import secrets
-from werkzeug.security import generate_password_hash
-
-
-# Database configuration
-DB_CONFIG = {
-    'host': 'localhost',
-    'user': 'root',
-    'password': 'Abinash@1910', # !! IMPORTANT: Ensure this is your actual MySQL password
-    'database': 'leave_management_db'
-}
-
-# Function to get a new database connection
-def get_db_connection():
-    """
-    Establishes a connection to the MySQL database.
-    """
-    try:
-        conn = mysql.connector.connect(**DB_CONFIG)
-        return conn
-    except mysql.connector.Error as err:
-        print(f"Error connecting to database: {err}")
-        return None
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from datetime import timedelta
+from sqlalchemy.exc import IntegrityError
+from database import (
+    SessionLocal, User, OTP, init_db,
+    get_db
+)
 
 # Create a Flask application instance
 app = Flask(__name__)
 
-
-CORS(app, supports_credentials=True, resources={r"/*": {"origins":[ "http://localhost:5173", "http://127.0.0.1:5173","https://accounts.google.com"]}})
-app.config['SESSION_COOKIE_SAMESITE'] = 'None'
-app.config['SESSION_COOKIE_SECURE'] = True
-
+# ============================================================
+# SIMPLE CORS HANDLING - ONE FUNCTION, ALWAYS WORKS
+# ============================================================
 @app.after_request
-def apply_cors(response):
-    response.headers["Access-Control-Allow-Origin"] = "http://localhost:5173"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
-    response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+def add_cors_headers(response):
+    """Add CORS headers to ALL responses - SIMPLE & CLEAN"""
+    origin = request.headers.get('Origin', '*')
+
+    # If origin is specified, use it. Otherwise allow all.
+    if origin and origin != '*':
+        response.headers['Access-Control-Allow-Origin'] = origin
+        # Allow credentials when origin is specific (not wildcard)
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+    else:
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Credentials'] = 'false'
+
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-User-Role, X-User-ID'
     return response
 
+@app.before_request
+def handle_options():
+    """Handle OPTIONS preflight requests"""
+    if request.method == 'OPTIONS':
+        response = jsonify({})
+        origin = request.headers.get('Origin')
+        if origin:
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-User-Role, X-User-ID'
+        return response, 200
+
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
+# Email configuration
+EMAIL_USER = os.getenv('EMAIL_USER', 'asolinmaso22@gmail.com')
+EMAIL_PASS = os.getenv('EMAIL_PASS', 'iqcg fkfy fuar habr')
+EMAIL_FROM = os.getenv('EMAIL_FROM', 'example@example.com')
+SMTP_SERVER = 'smtp.gmail.com'
+SMTP_PORT = 587
+app.config['SESSION_COOKIE_SECURE'] = True
+
+# Email sending function
+def send_email(to_email, subject, body):
+    """Send email using SMTP"""
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = EMAIL_FROM
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'html'))
+
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(EMAIL_USER, EMAIL_PASS.strip())
+        server.sendmail(EMAIL_FROM, to_email, msg.as_string())
+        server.quit()
+        print(f"Email sent successfully to {to_email}")
+        return True
+    except smtplib.SMTPAuthenticationError as e:
+        print(f"Email authentication failed: {e}")
+        return False
+    except smtplib.SMTPException as e:
+        print(f"SMTP error: {e}")
+        return False
+    except Exception as e:
+        print(f"Email sending failed: {e}")
+        return False
+
+
+# Database tables will be initialized when app starts
 
 
 # --- CUSTOM, TEMPORARY INSECURE DECORATORS ---
@@ -88,25 +132,25 @@ def hello_world():
 
 @app.route('/test_db_connection')
 def test_db_connection():
-    conn = None
+    db = None
     try:
-        conn = get_db_connection()
-        if conn and conn.is_connected():
-            return jsonify({"message": "Database connection successful!", "status": "connected"})
-        else:
-            return jsonify({"message": "Database connection failed.", "status": "failed"}), 500
+        db = SessionLocal()
+        # Try a simple query
+        from sqlalchemy import text
+        db.execute(text("SELECT 1"))
+        return jsonify({"message": "Database connection successful!", "status": "connected"})
     except Exception as e:
         return jsonify({"message": f"An error occurred: {str(e)}", "status": "error"}), 500
     finally:
-        if conn and conn.is_connected():
-            conn.close()
-
+        if db:
+            db.close()
 
 
 # --- User Authentication Endpoints (Updated with Role-Based Login) ---
 
 @app.route('/register', methods=['POST'])
 def register_user():
+    """Register a new user"""
     data = request.get_json()
     username = data.get('username')
     password = data.get('password')
@@ -120,59 +164,214 @@ def register_user():
 
     hashed_password = generate_password_hash(password)
 
-    conn = None
-    cursor = None
+    db = None
     try:
-        conn = get_db_connection()
-        if conn is None:
-            return jsonify({"message": "Database connection error."}), 500
-
-        cursor = conn.cursor()
-        query = """
-        INSERT INTO users (username, password_hash, email, first_name, last_name, role)
-        VALUES (%s, %s, %s, %s, %s, %s)
-        """
-        cursor.execute(query, (username, hashed_password, email, first_name, last_name, role))
-        conn.commit()
-        return jsonify({"message": "User registered successfully!", "user_id": cursor.lastrowid}), 201
-    except mysql.connector.Error as err:
-        if err.errno == 1062:
-            return jsonify({"message": "Username or email already exists."}), 409
-        return jsonify({"message": f"Database error: {err}"}), 500
+        db = SessionLocal()
+        new_user = User(
+            username=username,
+            password_hash=hashed_password,
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            role=role
+        )
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        return jsonify({"message": "User registered successfully!", "user_id": new_user.id}), 201
+    except IntegrityError as err:
+        db.rollback()
+        return jsonify({"message": "Username or email already exists."}), 409
     except Exception as e:
+        if db:
+            db.rollback()
         return jsonify({"message": f"An unexpected error occurred: {str(e)}"}), 500
     finally:
-        if cursor:
-            cursor.close()
-        if conn and conn.is_connected():
-            conn.close()
+        if db:
+            db.close()
 
+
+# ============================================================
+# OTP ENDPOINTS - CLEAN & SIMPLE
+# ============================================================
+
+@app.route('/send_otp', methods=['POST'])
+def send_otp():
+    """Send OTP to user's email for registration"""
+    try:
+        data = request.get_json() or {}
+        email = data.get("email", "").strip()
+        username = data.get("username", "").strip()
+
+        if not email or not username:
+            return jsonify({"message": "Email and username are required."}), 400
+
+        # Generate 6-digit OTP
+        otp_code = "".join(secrets.choice("0123456789") for _ in range(6))
+        expires_at = datetime.utcnow() + timedelta(minutes=10)
+
+        db = None
+        try:
+            db = SessionLocal()
+
+            # Check if user already exists
+            existing_user = (
+                db.query(User)
+                .filter((User.email == email) | (User.username == username))
+                .first()
+            )
+            if existing_user:
+                return jsonify({"message": "Email or username already registered."}), 409
+
+            # Save OTP to database
+            new_otp = OTP(email=email, otp_code=otp_code, expires_at=expires_at)
+            db.add(new_otp)
+            db.commit()
+
+            # Send email
+            subject = "Your OTP Code for Registration"
+            body = f"""
+            <html>
+            <body>
+                <h2>Welcome to Stafio!</h2>
+                <p>Hi {username},</p>
+                <p>Your OTP code for registration is: <strong>{otp_code}</strong></p>
+                <p>This code will expire in 10 minutes.</p>
+                <p>If you didn't request this, please ignore this email.</p>
+                <br>
+                <p>Best regards,<br>Stafio Team</p>
+            </body>
+            </html>
+            """
+
+            if not send_email(email, subject, body):
+                return jsonify({"message": "Failed to send email. Please try again."}), 502
+
+            return jsonify({"message": "OTP sent successfully to your email."}), 200
+
+        except Exception as e:
+            if db:
+                db.rollback()
+            print(f"Error in send_otp: {str(e)}")
+            return jsonify({"message": "Internal server error while sending OTP."}), 500
+        finally:
+            if db:
+                db.close()
+    except Exception as e:
+        print(f"Error parsing request in send_otp: {str(e)}")
+        return jsonify({"message": "Invalid request format."}), 400
+
+
+@app.route('/verify_otp_register', methods=['POST'])
+def verify_otp_register():
+    """Verify OTP and complete user registration"""
+    data = request.get_json(silent=True) or {}
+
+    email = data.get("email")
+    username = data.get("username")
+    password = data.get("password")
+    otp_code = data.get("otp")
+    role = data.get("role", "employee")
+
+    if not all([email, username, password, otp_code]):
+        return jsonify({"message": "All fields are required."}), 400
+
+    db = None
+    try:
+        db = SessionLocal()
+
+        # Find the OTP record
+        otp_record = (
+            db.query(OTP)
+            .filter(
+                OTP.email == email,
+                OTP.otp_code == otp_code,
+                OTP.is_used == 0,
+                OTP.expires_at > datetime.utcnow(),
+            )
+            .first()
+        )
+
+        if not otp_record:
+            return jsonify({"message": "Invalid or expired OTP."}), 400
+
+        # Check if user already exists
+        existing_user = (
+            db.query(User)
+            .filter((User.email == email) | (User.username == username))
+            .first()
+        )
+        if existing_user:
+            return jsonify({"message": "Email or username already registered."}), 409
+
+        # Create user
+        hashed_password = generate_password_hash(password)
+        new_user = User(
+            username=username,
+            password_hash=hashed_password,
+            email=email,
+            role=role,
+        )
+        db.add(new_user)
+
+        # Mark OTP as used
+        otp_record.is_used = 1
+
+        db.commit()
+        db.refresh(new_user)
+
+        return (
+            jsonify({"message": "User registered successfully!", "user_id": new_user.id}),
+            201,
+        )
+
+    except IntegrityError:
+        if db:
+            db.rollback()
+        return jsonify({"message": "Username or email already exists."}), 409
+    except Exception as e:
+        if db:
+            db.rollback()
+        print(f"Error in verify_otp_register: {str(e)}")
+        return (
+            jsonify({"message": "Internal server error while verifying OTP."}),
+            500,
+        )
+    finally:
+        if db:
+            db.close()
 
 
 #this is the code of getting the user name for backend code 
 
 @app.route('/users/<int:user_id>', methods=['GET'])
 def get_user_details(user_id):
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT id, username, email, first_name, last_name, role FROM users WHERE id = %s", (user_id,))
-    user = cursor.fetchone()
-    cursor.close()
-    conn.close()
+    db = None
+    try:
+        db = SessionLocal()
+        user = db.query(User).filter(User.id == user_id).first()
+        
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+        
+        return jsonify({
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "role": user.role
+        }), 200
+    except Exception as e:
+        return jsonify({"message": f"An error occurred: {str(e)}"}), 500
+    finally:
+        if db:
+            db.close()
 
-    if not user:
-        return jsonify({"message": "User not found"}), 404
-    return jsonify(user), 200
 
-
-
-@app.route('/google_login', methods=['POST', 'OPTIONS'])
+@app.route('/google_login', methods=['POST'])
 def google_login():
-
-    # Handle CORS preflight
-    if request.method == "OPTIONS":
-        return "", 200
-
+    """Handle Google OAuth login"""
     data = request.get_json()
     id_token = data.get("id_token")
     requested_role = data.get("role", "employee")
@@ -205,22 +404,18 @@ def google_login():
     if not email or not email_verified:
         return jsonify({"message": "Google account email not verified"}), 400
 
-    conn = None
-    cursor = None
-
+    db = None
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        db = SessionLocal()
 
         # Check existing user
-        cursor.execute("SELECT id, username, role FROM users WHERE email = %s", (email,))
-        user = cursor.fetchone()
+        user = db.query(User).filter(User.email == email).first()
 
         if user:
             return jsonify(
-                user_id=user["id"],
-                username=user["username"],
-                role=user["role"]
+                user_id=user.id,
+                username=user.username,
+                role=user.role
             ), 200
 
         # Create new user
@@ -229,8 +424,8 @@ def google_login():
 
         i = 1
         while True:
-            cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
-            if cursor.fetchone():
+            existing_user = db.query(User).filter(User.username == username).first()
+            if existing_user:
                 username = f"{username_base}{i}"
                 i += 1
             else:
@@ -239,39 +434,37 @@ def google_login():
         random_password = secrets.token_urlsafe(16)
         password_hash = generate_password_hash(random_password)
 
-        insert_query = """
-            INSERT INTO users (username, password_hash, email, first_name, last_name, role)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """
-        cursor.execute(
-            insert_query,
-            (username, password_hash, email, given_name, family_name, requested_role)
+        new_user = User(
+            username=username,
+            password_hash=password_hash,
+            email=email,
+            first_name=given_name,
+            last_name=family_name,
+            role=requested_role
         )
-        conn.commit()
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
 
         return jsonify(
-            user_id=cursor.lastrowid,
-            username=username,
-            role=requested_role
+            user_id=new_user.id,
+            username=new_user.username,
+            role=new_user.role
         ), 201
 
     except Exception as e:
+        if db:
+            db.rollback()
         return jsonify({"message": f"Server error: {str(e)}"}), 500
 
     finally:
-        if cursor:
-            cursor.close()
-        if conn and conn.is_connected():
-            conn.close()
-
-
+        if db:
+            db.close()
 
 
 @app.route('/employee_login', methods=['POST'])
 def employee_login():
-    """
-    Authenticates an employee user.
-    """
+    """Authenticate an employee user"""
     data = request.get_json()
     identifier = data.get('identifier') # Can be username or email
     password = data.get('password')
@@ -279,30 +472,53 @@ def employee_login():
     if not identifier or not password:
         return jsonify({"message": "Username/Email and password are required."}), 400
 
-    conn = None
-    cursor = None
+    db = None
     try:
-        conn = get_db_connection()
-        if conn is None:
-            return jsonify({"message": "Database connection error."}), 500
+        db = SessionLocal()
+        user = db.query(User).filter(
+            (User.username == identifier) | (User.email == identifier),
+            User.role == 'employee'
+        ).first()
 
-        cursor = conn.cursor(dictionary=True)
-        query = "SELECT id, username, password_hash, role FROM users WHERE (username = %s OR email = %s) AND role = 'employee'"
-        cursor.execute(query, (identifier, identifier))
-        user = cursor.fetchone()
-
-        if user and check_password_hash(user['password_hash'], password):
-            return jsonify(user_id=user['id'], role=user['role'], username=user['username']), 200
+        if user and check_password_hash(user.password_hash, password):
+            return jsonify(user_id=user.id, role=user.role, username=user.username), 200
         else:
             return jsonify({"message": "Invalid employee username/email or password."}), 401
     except Exception as e:
         print(f"ERROR: employee_login - An unexpected error occurred: {str(e)}")
         return jsonify({"message": f"An unexpected error occurred: {str(e)}"}), 500
     finally:
-        if cursor:
-            cursor.close()
-        if conn and conn.is_connected():
-            conn.close()
+        if db:
+            db.close()
+
+@app.route('/admin_login', methods=['POST'])
+def admin_login():
+    """Authenticate an admin user"""
+    data = request.get_json()
+    identifier = data.get('identifier') # Can be username or email
+    password = data.get('password')
+
+    if not identifier or not password:
+        return jsonify({"message": "Username/Email and password are required."}), 400
+
+    db = None
+    try:
+        db = SessionLocal()
+        user = db.query(User).filter(
+            (User.username == identifier) | (User.email == identifier),
+            User.role == 'admin'
+        ).first()
+
+        if user and check_password_hash(user.password_hash, password):
+            return jsonify(user_id=user.id, role=user.role, username=user.username), 200
+        else:
+            return jsonify({"message": "Invalid admin username/email or password."}), 401
+    except Exception as e:
+        print(f"ERROR: admin_login - An unexpected error occurred: {str(e)}")
+        return jsonify({"message": f"An unexpected error occurred: {str(e)}"}), 500
+    finally:
+        if db:
+            db.close()
 
 # --- PROTECTED ROUTE (NOW USES TEMPORARY DECORATOR) ---
 @app.route('/protected', methods=['GET'])
@@ -347,46 +563,46 @@ def get_admin_dashboard_data():
 
 @app.route('/check_email', methods=['POST'])
 def check_email():
+    """Check if email exists in database"""
     email = request.json.get("email")
 
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
-    user = cursor.fetchone()
-
-    cursor.close()
-    conn.close()
-
-    return jsonify({"exists": bool(user)})
+    db = None
+    try:
+        db = SessionLocal()
+        user = db.query(User).filter(User.email == email).first()
+        return jsonify({"exists": bool(user)})
+    except Exception as e:
+        return jsonify({"exists": False, "error": str(e)}), 500
+    finally:
+        if db:
+            db.close()
 
 
 @app.route('/update_password', methods=['POST'])
 def update_password():
+    """Update user password"""
     data = request.json
     email = data["email"]
     new_password = generate_password_hash(data["newPassword"])
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    db = None
+    try:
+        db = SessionLocal()
+        user = db.query(User).filter(User.email == email).first()
 
-    # Check email exists
-    cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
-    user = cursor.fetchone()
+        if not user:
+            return jsonify({"message": "Email not found"}), 400
 
-    if not user:
-        cursor.close()
-        conn.close()
-        return jsonify({"message": "Email not found"}), 400
-
-    # Update password
-    cursor.execute("UPDATE users SET password_hash = %s WHERE email = %s", (new_password, email))
-    conn.commit()
-
-    cursor.close()
-    conn.close()
-
-    return jsonify({"message": "Password updated successfully"}), 200
+        user.password_hash = new_password
+        db.commit()
+        return jsonify({"message": "Password updated successfully"}), 200
+    except Exception as e:
+        if db:
+            db.rollback()
+        return jsonify({"message": f"An error occurred: {str(e)}"}), 500
+    finally:
+        if db:
+            db.close()
 
 
 
@@ -673,66 +889,76 @@ def get_admin_attendance_data():
 @custom_admin_required()
 def get_admin_profile_data(user_id):
     """
-    Returns admin profile data for the specified user.
-    Mock data - replace with actual database queries later.
+    Returns admin profile data for the specified user from database.
     """
-    # Mock profile data
-    admin_profile_data = {
-        "profile": {
-            "profileImage": "",
-            "name": "Aiswarya Shyamkumar",
-            "gender": "Female",
-            "dob": "1993-07-22",
-            "maritalStatus": "Married",
-            "nationality": "India",
-            "bloodGroup": "A+",
-            "email": "aiswarya@gmail.com",
-            "phone": "9895195971",
-            "address": "Kattasseri House, Kalarikal, Alappuzha, Kerala",
-            "emergencyContactNumber": "9895195971",
-            "relationship": "Husband",
-            "empType": "Internship",
-            "department": "Design",
-            "location": "Kerala",
-            "supervisor": "Sakshi Chadchankar",
-            "hrManager": "S. Santhana Lakshmi",
-            "empId": "1234567",
-            "status": "Active"
-        },
-        "education": {
-            "institution": "CEMP Punnapra",
-            "location": "Kerala",
-            "startDate": "2012-07-22",
-            "endDate": "2016-07-22",
-            "qualification": "B.Tech",
-            "specialization": "Computer Science",
-            "skills": ["Illustrator", "Photoshop", "Figma", "Adobe XD"],
-            "portfolio": "https://www.behance.net/gallery/229448069/Training-Provider-Web-UI-Design"
-        },
-        "experience": {
-            "company": "Azym Technology",
-            "jobTitle": "UIUX Designer",
-            "startDate": "2017-07-22",
-            "endDate": "2022-07-22",
-            "responsibilities": "Conduct user research, interviews, and usability testing to gather insights.",
-            "totalYears": 4
-        },
-        "bank": {
-            "bankName": "SBI",
-            "branch": "Alappuzha",
-            "accountNumber": "123456789101",
-            "ifsc": "IFC12345",
-            "aadhaar": "123456789101",
-            "pan": "IFC12345"
-        },
-        "documents": [
-            {"fileName": "Signed OfferLetter.pdf", "status": "Completed"},
-            {"fileName": "DegreeCertificate.pdf", "status": "Completed"},
-            {"fileName": "Pan Card.pdf", "status": "Completed"}
-        ]
-    }
-    
-    return jsonify(admin_profile_data), 200
+    db = None
+    try:
+        db = SessionLocal()
+        user = db.query(User).filter(User.id == user_id).first()
+        
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+        
+        # Return only data from database, empty strings for fields not in database
+        admin_profile_data = {
+            "profile": {
+                "profileImage": "",
+                "name": f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username,
+                "gender": "",
+                "dob": "",
+                "maritalStatus": "",
+                "nationality": "",
+                "bloodGroup": "",
+                "email": user.email or "",
+                "phone": "",
+                "address": "",
+                "emergencyContactNumber": "",
+                "relationship": "",
+                "empType": "",
+                "department": "",
+                "location": "",
+                "supervisor": "",
+                "hrManager": "",
+                "empId": str(user.id) if user.id else "",
+                "status": ""
+            },
+            "education": {
+                "institution": "",
+                "location": "",
+                "startDate": "",
+                "endDate": "",
+                "qualification": "",
+                "specialization": "",
+                "skills": [],
+                "portfolio": ""
+            },
+            "experience": {
+                "company": "",
+                "jobTitle": "",
+                "startDate": "",
+                "endDate": "",
+                "responsibilities": "",
+                "totalYears": ""
+            },
+            "bank": {
+                "bankName": "",
+                "branch": "",
+                "accountNumber": "",
+                "ifsc": "",
+                "aadhaar": "",
+                "pan": ""
+            },
+            "documents": []
+        }
+        
+        return jsonify(admin_profile_data), 200
+    except Exception as e:
+        if db:
+            db.rollback()
+        return jsonify({"message": f"An error occurred: {str(e)}"}), 500
+    finally:
+        if db:
+            db.close()
 
 
 # --- Employee Profile Endpoint ---
@@ -740,73 +966,107 @@ def get_admin_profile_data(user_id):
 @custom_user_required()
 def get_employee_profile_data(user_id):
     """
-    Returns employee profile data for the specified user.
-    Mock data - replace with actual database queries later.
+    Returns employee profile data for the specified user from database.
     """
     # Check if the requesting user is accessing their own profile
     current_user_id = request.current_user_id
     if current_user_id != user_id and request.headers.get('X-User-Role') != 'admin':
         return jsonify({"message": "Unauthorized to view this profile."}), 403
     
-    # Mock profile data
-    employee_profile_data = {
-        "profile": {
-            "profileImage": "",
-            "name": "Aiswarya Shyamkumar",
-            "gender": "Female",
-            "dob": "1993-07-22",
-            "maritalStatus": "Married",
-            "nationality": "India",
-            "bloodGroup": "A+",
-            "email": "aiswarya@gmail.com",
-            "phone": "9895195971",
-            "address": "Kattasseri House, Kalarikal, Alappuzha, Kerala",
-            "emergencyContactNumber": "9895195971",
-            "relationship": "Husband",
-            "empType": "Internship",
-            "department": "Design",
-            "location": "Kerala",
-            "supervisor": "Sakshi Chadchankar",
-            "hrManager": "S. Santhana Lakshmi",
-            "empId": "1234567",
-            "status": "Active"
-        },
-        "education": {
-            "institution": "CEMP Punnapra",
-            "location": "Kerala",
-            "startDate": "2012-07-22",
-            "endDate": "2016-07-22",
-            "qualification": "B.Tech",
-            "specialization": "Computer Science",
-            "skills": ["Illustrator", "Photoshop", "Figma", "Adobe XD"],
-            "portfolio": "https://www.behance.net/gallery/229448069/Training-Provider-Web-UI-Design"
-        },
-        "experience": {
-            "company": "Azym Technology",
-            "jobTitle": "UIUX Designer",
-            "startDate": "2017-07-22",
-            "endDate": "2022-07-22",
-            "responsibilities": "Conduct user research, interviews, and usability testing to gather insights.",
-            "totalYears": 4
-        },
-        "bank": {
-            "bankName": "SBI",
-            "branch": "Alappuzha",
-            "accountNumber": "123456789101",
-            "ifsc": "IFC12345",
-            "aadhaar": "123456789101",
-            "pan": "IFC12345"
-        },
-        "documents": [
-            {"fileName": "Signed OfferLetter.pdf", "status": "Completed"},
-            {"fileName": "DegreeCertificate.pdf", "status": "Completed"},
-            {"fileName": "Pan Card.pdf", "status": "Completed"}
-        ]
-    }
-    
-    return jsonify(employee_profile_data), 200
+    db = None
+    try:
+        db = SessionLocal()
+        user = db.query(User).filter(User.id == user_id).first()
+        
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+        
+        # Return only data from database, empty strings for fields not in database
+        employee_profile_data = {
+            "profile": {
+                "profileImage": "",
+                "name": f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username,
+                "gender": "",
+                "dob": "",
+                "maritalStatus": "",
+                "nationality": "",
+                "bloodGroup": "",
+                "email": user.email or "",
+                "phone": "",
+                "address": "",
+                "emergencyContactNumber": "",
+                "relationship": "",
+                "empType": "",
+                "department": "",
+                "location": "",
+                "supervisor": "",
+                "hrManager": "",
+                "empId": str(user.id) if user.id else "",
+                "status": ""
+            },
+            "education": {
+                "institution": "",
+                "location": "",
+                "startDate": "",
+                "endDate": "",
+                "qualification": "",
+                "specialization": "",
+                "skills": [],
+                "portfolio": ""
+            },
+            "experience": {
+                "company": "",
+                "jobTitle": "",
+                "startDate": "",
+                "endDate": "",
+                "responsibilities": "",
+                "totalYears": ""
+            },
+            "bank": {
+                "bankName": "",
+                "branch": "",
+                "accountNumber": "",
+                "ifsc": "",
+                "aadhaar": "",
+                "pan": ""
+            },
+            "documents": []
+        }
+        
+        return jsonify(employee_profile_data), 200
+    except Exception as e:
+        if db:
+            db.rollback()
+        return jsonify({"message": f"An error occurred: {str(e)}"}), 500
+    finally:
+        if db:
+            db.close()
 
 
 # Run the Flask application
 if __name__ == '__main__':
-    app.run(debug=True)
+    # Print startup info
+    print("\n" + "="*60)
+    print("Stafio Backend Server Starting")
+    print("CORS: Enabled for all origins")
+    print("="*60 + "\n")
+    
+    # Initialize database tables (creates tables if they don't exist)
+    try:
+        init_db()
+        print("Database tables initialized successfully!")
+    except Exception as e:
+        print(f"Warning: Could not initialize database tables: {e}")
+        print("Make sure PostgreSQL is running and databases are created.")
+    
+    # Run migrations (upgrade to latest)
+    try:
+        from run_migrations import run_migrations
+        run_migrations()
+    except Exception as e:
+        print(f"Warning: Could not run migrations: {e}")
+        print("You may need to run migrations manually: python run_migrations.py")
+    
+    print("\nStarting Flask server on http://localhost:5001")
+    print("CORS is enabled for all endpoints\n")
+    app.run(debug=True, host='0.0.0.0', port=5001)
