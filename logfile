@@ -1,0 +1,2237 @@
+2025-11-17 15:33:48.636 IST [48617] LOG:  starting PostgreSQL 17.5 (Homebrew) on aarch64-apple-darwin24.4.0, compiled by Apple clang version 17.0.0 (clang-1700.0.13.3), 64-bit
+2025-11-17 15:33:48.636 IST [48617] LOG:  listening on IPv6 address "::1", port 5432
+2025-11-17 15:33:48.636 IST [48617] LOG:  listening on IPv4 address "127.0.0.1", port 5432
+2025-11-17 15:33:48.636 IST [48617] LOG:  listening on Unix socket "/tmp/.s.PGSQL.5432"
+2025-11-17 15:33:48.637 IST [48617] FATAL:  postmaster became multithreaded during startup
+2025-11-17 15:33:48.637 IST [48617] HINT:  Set the LC_ALL environment variable to a valid locale.
+2025-11-17 15:33:48.638 IST [48617] LOG:  database system is shut down
+2025-11-17 15:33:52.669 IST [48767] FATAL:  lock file "postmaster.pid" already exists
+2025-11-17 15:33:52.669 IST [48767] HINT:  Is another postmaster (PID 48732) running in data directory "/opt/homebrew/var/postgresql@17"?
+2025-11-17 15:33:56.683 IST [49090] LOG:  starting PostgreSQL 17.5 (Homebrew) on aarch64-apple-darwin24.4.0, compiled by Apple clang version 17.0.0 (clang-1700.0.13.3), 64-bit
+2025-11-17 15:33:56.685 IST [49090] LOG:  listening on IPv6 address "::1", port 5432
+2025-11-17 15:33:56.685 IST [49090] LOG:  listening on IPv4 address "127.0.0.1", port 5432
+2025-11-17 15:33:56.686 IST [49090] LOG:  listening on Unix socket "/tmp/.s.PGSQL.5432"
+2025-11-17 15:33:56.691 IST [49117] LOG:  database system was interrupted; last known up at 2025-11-17 15:33:52 IST
+2025-11-17 15:33:56.757 IST [49117] LOG:  database system was not properly shut down; automatic recovery in progress
+2025-11-17 15:33:56.758 IST [49117] LOG:  invalid record length at 0/15146B0: expected at least 24, got 0
+2025-11-17 15:33:56.758 IST [49117] LOG:  redo is not required
+2025-11-17 15:33:56.759 IST [49114] LOG:  checkpoint starting: end-of-recovery immediate wait
+2025-11-17 15:33:56.760 IST [49114] LOG:  checkpoint complete: wrote 3 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=2, longest=0.001 s, average=0.001 s; distance=0 kB, estimate=0 kB; lsn=0/15146B0, redo lsn=0/15146B0
+2025-11-17 15:33:56.763 IST [49090] LOG:  database system is ready to accept connections
+2025-11-17 15:34:03.768 IST [49425] FATAL:  role "postgres" does not exist
+2025-11-17 15:39:05.777 IST [49114] LOG:  checkpoint starting: time
+2025-11-17 15:42:18.663 IST [49114] LOG:  checkpoint complete: wrote 1910 buffers (11.7%); 1 WAL file(s) added, 0 removed, 0 recycled; write=192.857 s, sync=0.012 s, total=192.888 s; sync files=634, longest=0.001 s, average=0.001 s; distance=8843 kB, estimate=8843 kB; lsn=0/1DB7678, redo lsn=0/1DB75E8
+2025-11-17 15:46:11.127 IST [67606] FATAL:  database "nexuscare" does not exist
+2025-11-17 15:46:13.138 IST [67677] FATAL:  database "nexuscare" does not exist
+2025-11-17 15:46:16.144 IST [67739] FATAL:  database "nexuscare" does not exist
+2025-11-17 15:46:20.648 IST [67864] FATAL:  database "nexuscare" does not exist
+2025-11-17 15:46:27.092 IST [68014] FATAL:  database "nexuscare" does not exist
+2025-11-17 15:46:27.401 IST [68035] FATAL:  database "nexuscare" does not exist
+2025-11-17 15:47:50.587 IST [49114] LOG:  checkpoint starting: immediate force wait
+2025-11-17 15:47:50.588 IST [49114] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=2, longest=0.001 s, average=0.001 s; distance=2 kB, estimate=7959 kB; lsn=0/1DB8040, redo lsn=0/1DB7FD0
+2025-11-17 15:52:50.589 IST [49114] LOG:  checkpoint starting: time
+2025-11-17 15:52:50.694 IST [49114] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.103 s, sync=0.001 s, total=0.106 s; sync files=2, longest=0.001 s, average=0.001 s; distance=0 kB, estimate=7163 kB; lsn=0/1DB8220, redo lsn=0/1DB81C8
+2025-11-17 15:54:22.030 IST [80122] ERROR:  relation "platform.fhir_extension_definitions" does not exist
+2025-11-17 15:54:22.030 IST [80122] STATEMENT:  -- ================================================================
+	-- Migration: Add FHIR StructureDefinition Metadata to Extension Definitions
+	-- ================================================================
+	-- This migration adds proper FHIR StructureDefinition metadata columns
+	-- to support full FHIR R4 compliance for extension definitions
+	-- Date: 2025-01-21
+	-- ================================================================
+	
+	BEGIN;
+	
+	-- Add cardinality column (0..1, 0..*, 1..1, etc.)
+	ALTER TABLE platform.fhir_extension_definitions
+	ADD COLUMN IF NOT EXISTS cardinality VARCHAR(20) DEFAULT '0..1';
+	
+	-- Add status column (draft, active, retired, unknown)
+	ALTER TABLE platform.fhir_extension_definitions
+	ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active'
+	CHECK (status IN ('draft', 'active', 'retired', 'unknown'));
+	
+	-- Add experimental flag
+	ALTER TABLE platform.fhir_extension_definitions
+	ADD COLUMN IF NOT EXISTS experimental BOOLEAN DEFAULT false;
+	
+	-- Add context type (Element, Extension, Resource, etc.)
+	ALTER TABLE platform.fhir_extension_definitions
+	ADD COLUMN IF NOT EXISTS context_type VARCHAR(50) DEFAULT 'Element';
+	
+	-- Add context expression (where this extension can be used)
+	ALTER TABLE platform.fhir_extension_definitions
+	ADD COLUMN IF NOT EXISTS context_expression TEXT;
+	
+	-- Add is_required flag
+	ALTER TABLE platform.fhir_extension_definitions
+	ADD COLUMN IF NOT EXISTS is_required BOOLEAN DEFAULT false;
+	
+	-- Add is_modifier flag (whether extension changes meaning of element)
+	ALTER TABLE platform.fhir_extension_definitions
+	ADD COLUMN IF NOT EXISTS is_modifier BOOLEAN DEFAULT false;
+	
+	-- Add example_value for documentation
+	ALTER TABLE platform.fhir_extension_definitions
+	ADD COLUMN IF NOT EXISTS example_value JSONB;
+	
+	-- Add version tracking
+	ALTER TABLE platform.fhir_extension_definitions
+	ADD COLUMN IF NOT EXISTS version VARCHAR(50) DEFAULT '1.0.0';
+	
+	-- Add updated_at timestamp
+	ALTER TABLE platform.fhir_extension_definitions
+	ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+	
+	-- Create index on status for filtering active extensions
+	CREATE INDEX IF NOT EXISTS idx_fhir_extension_definitions_status
+	ON platform.fhir_extension_definitions(status) WHERE status = 'active';
+	
+	-- Create index on experimental for filtering production-ready extensions
+	CREATE INDEX IF NOT EXISTS idx_fhir_extension_definitions_experimental
+	ON platform.fhir_extension_definitions(experimental) WHERE experimental = false;
+	
+	-- Add comments
+	COMMENT ON COLUMN platform.fhir_extension_definitions.cardinality IS 'FHIR cardinality (0..1, 0..*, 1..1, etc.)';
+	COMMENT ON COLUMN platform.fhir_extension_definitions.status IS 'FHIR StructureDefinition status (draft, active, retired, unknown)';
+	COMMENT ON COLUMN platform.fhir_extension_definitions.experimental IS 'Whether this extension is experimental';
+	COMMENT ON COLUMN platform.fhir_extension_definitions.context_type IS 'FHIR context type (Element, Extension, Resource)';
+	COMMENT ON COLUMN platform.fhir_extension_definitions.context_expression IS 'Where this extension can be used (e.g., Patient, Observation)';
+	COMMENT ON COLUMN platform.fhir_extension_definitions.is_required IS 'Whether this extension is required when used';
+	COMMENT ON COLUMN platform.fhir_extension_definitions.is_modifier IS 'Whether extension changes meaning of element';
+	COMMENT ON COLUMN platform.fhir_extension_definitions.example_value IS 'Example value for documentation';
+	COMMENT ON COLUMN platform.fhir_extension_definitions.version IS 'Version of this extension definition';
+	
+	COMMIT;
+	
+	-- ================================================================
+	-- Rollback script (if needed)
+	-- ================================================================
+	-- BEGIN;
+	-- ALTER TABLE platform.fhir_extension_definitions DROP COLUMN IF EXISTS cardinality;
+	-- ALTER TABLE platform.fhir_extension_definitions DROP COLUMN IF EXISTS status;
+	-- ALTER TABLE platform.fhir_extension_definitions DROP COLUMN IF EXISTS experimental;
+	-- ALTER TABLE platform.fhir_extension_definitions DROP COLUMN IF EXISTS context_type;
+	-- ALTER TABLE platform.fhir_extension_definitions DROP COLUMN IF EXISTS context_expression;
+	-- ALTER TABLE platform.fhir_extension_definitions DROP COLUMN IF EXISTS is_required;
+	-- ALTER TABLE platform.fhir_extension_definitions DROP COLUMN IF EXISTS is_modifier;
+	-- ALTER TABLE platform.fhir_extension_definitions DROP COLUMN IF EXISTS example_value;
+	-- ALTER TABLE platform.fhir_extension_definitions DROP COLUMN IF EXISTS version;
+	-- ALTER TABLE platform.fhir_extension_definitions DROP COLUMN IF EXISTS updated_at;
+	-- DROP INDEX IF EXISTS platform.idx_fhir_extension_definitions_status;
+	-- DROP INDEX IF EXISTS platform.idx_fhir_extension_definitions_experimental;
+	-- COMMIT;
+	
+2025-11-17 15:55:02.524 IST [49114] LOG:  checkpoint starting: immediate force wait
+2025-11-17 15:55:02.526 IST [49114] LOG:  checkpoint complete: wrote 8 buffers (0.0%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=8, longest=0.001 s, average=0.001 s; distance=4905 kB, estimate=6937 kB; lsn=0/2282998, redo lsn=0/2282940
+2025-11-17 15:55:02.730 IST [81354] ERROR:  unterminated dollar-quoted string at or near "$$
+	BEGIN
+	    NEW.updated_at = CURRENT_TIMESTAMP;" at character 288
+2025-11-17 15:55:02.730 IST [81354] STATEMENT:  -- ====================================================================
+	-- FUNCTIONS AND TRIGGERS
+	-- ====================================================================
+	
+	-- Function to update updated_at timestamp
+	CREATE OR REPLACE FUNCTION update_updated_at_column()
+	RETURNS TRIGGER AS $$
+	BEGIN
+	    NEW.updated_at = CURRENT_TIMESTAMP;
+2025-11-17 15:55:20.520 IST [49114] LOG:  checkpoint starting: immediate force wait
+2025-11-17 15:55:20.524 IST [49114] LOG:  checkpoint complete: wrote 14 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.003 s, sync=0.001 s, total=0.004 s; sync files=9, longest=0.001 s, average=0.001 s; distance=5806 kB, estimate=6824 kB; lsn=0/282E450, redo lsn=0/282E3F8
+2025-11-17 15:55:20.702 IST [82310] ERROR:  syntax error at or near ""group"" at character 45
+2025-11-17 15:55:20.702 IST [82310] QUERY:  
+	            CREATE TRIGGER update_platform_"group"_updated_at 
+	            BEFORE UPDATE ON platform."group" 
+	            FOR EACH ROW 
+	            EXECUTE FUNCTION update_updated_at_column()
+2025-11-17 15:55:20.702 IST [82310] CONTEXT:  PL/pgSQL function inline_code_block line 11 at EXECUTE
+2025-11-17 15:55:20.702 IST [82310] STATEMENT:  --
+	-- PostgreSQL Baseline Database Schema for IASORA Platform
+	-- Generated: 2025-09-03
+	-- Database: iasora_dev
+	--
+	-- This is a comprehensive baseline schema that includes all tables, indexes,
+	-- functions, triggers, and constraints. Uses CREATE IF NOT EXISTS pattern
+	-- for idempotent execution.
+	--
+	
+	-- ====================================================================
+	-- EXTENSIONS
+	-- ====================================================================
+	
+	CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+	CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+	CREATE EXTENSION IF NOT EXISTS "btree_gin";
+	CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+	
+	-- ====================================================================
+	-- SCHEMAS
+	-- ====================================================================
+	
+	-- Core platform schema
+	CREATE SCHEMA IF NOT EXISTS platform;
+	
+	-- Authentication schema
+	CREATE SCHEMA IF NOT EXISTS auth;
+	
+	-- Analytics schema
+	CREATE SCHEMA IF NOT EXISTS analytics;
+	
+	-- Workflow engine schema
+	CREATE SCHEMA IF NOT EXISTS workflowengine;
+	
+	-- Clinical UMLS schema
+	CREATE SCHEMA IF NOT EXISTS clinical_umls;
+	
+	-- Default tenant schema
+	CREATE SCHEMA IF NOT EXISTS tenant_default;
+	
+	-- ====================================================================
+	-- PLATFORM SCHEMA TABLES
+	-- ====================================================================
+	
+	-- ClaimResponse table for FHIR R4
+	CREATE TABLE IF NOT EXISTS platform.claimresponse (
+	    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+	    resource_id VARCHAR(64) NOT NULL,
+	    version_id INTEGER DEFAULT 1 NOT NULL,
+	    identifier JSONB DEFAULT '[]',
+	    status VARCHAR(20) NOT NULL,
+	    type JSONB NOT NULL,
+	    sub_type JSONB,
+	    use VARCHAR(20) NOT NULL,
+	    patient VARCHAR(255) NOT NULL,
+	    created TIMESTAMP NOT NULL,
+	    insurer VARCHAR(255) NOT NULL,
+	    requestor VARCHAR(255),
+	    request VARCHAR(255),
+	    outcome VARCHAR(20) NOT NULL,
+	    disposition TEXT,
+	    pre_auth_ref VARCHAR(255),
+	    pre_auth_period JSONB,
+	    payee_type JSONB,
+	    item JSONB DEFAULT '[]',
+	    add_item JSONB DEFAULT '[]',
+	    adjudication JSONB DEFAULT '[]',
+	    total JSONB DEFAULT '[]',
+	    payment JSONB,
+	    funds_reserve JSONB,
+	    form_code JSONB,
+	    form JSONB,
+	    process_note JSONB DEFAULT '[]',
+	    communication_request JSONB DEFAULT '[]',
+	    insurance JSONB DEFAULT '[]',
+	    error JSONB DEFAULT '[]',
+	    resource JSONB NOT NULL,
+	    tenant_id VARCHAR(50) NOT NULL,
+	    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	    created_by VARCHAR(255),
+	    updated_by VARCHAR(255),
+	    deleted BOOLEAN DEFAULT false,
+	    
+	    CONSTRAINT claimresponse_resource_id_tenant_id_key UNIQUE (resource_id, tenant_id)
+	);
+	
+	-- Create indexes for ClaimResponse
+	CREATE INDEX IF NOT EXISTS idx_claimresponse_resource_id ON platform.claimresponse(resource_id) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_claimresponse_tenant_id ON platform.claimresponse(tenant_id) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_claimresponse_status ON platform.claimresponse(status) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_claimresponse_patient ON platform.claimresponse(patient) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_claimresponse_insurer ON platform.claimresponse(insurer) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_claimresponse_request ON platform.claimresponse(request) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_claimresponse_outcome ON platform.claimresponse(outcome) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_claimresponse_created ON platform.claimresponse(created) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_claimresponse_requestor ON platform.claimresponse(requestor) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_claimresponse_patient_created ON platform.claimresponse(patient, created DESC) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_claimresponse_insurer_outcome ON platform.claimresponse(insurer, outcome) WHERE deleted = false;
+	
+	-- FamilyMemberHistory table for FHIR R4
+	CREATE TABLE IF NOT EXISTS platform.family_member_history (
+	    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+	    resource_id VARCHAR(64) NOT NULL,
+	    version_id INTEGER DEFAULT 1 NOT NULL,
+	    identifier JSONB DEFAULT '[]',
+	    instantiates_canonical JSONB DEFAULT '[]',
+	    instantiates_uri JSONB DEFAULT '[]',
+	    status VARCHAR(30) NOT NULL,
+	    data_absent_reason JSONB,
+	    patient VARCHAR(255) NOT NULL,
+	    date TIMESTAMP,
+	    name TEXT,
+	    relationship JSONB NOT NULL,
+	    sex JSONB,
+	    born_period JSONB,
+	    born_date DATE,
+	    born_string TEXT,
+	    age_age JSONB,
+	    age_range JSONB,
+	    age_string TEXT,
+	    estimated_age BOOLEAN,
+	    deceased_boolean BOOLEAN,
+	    deceased_age JSONB,
+	    deceased_range JSONB,
+	    deceased_date DATE,
+	    deceased_string TEXT,
+	    reason_code JSONB DEFAULT '[]',
+	    reason_reference JSONB DEFAULT '[]',
+	    note JSONB DEFAULT '[]',
+	    condition_data JSONB DEFAULT '[]',
+	    status_code VARCHAR(30),
+	    relationship_code VARCHAR(100),
+	    relationship_system VARCHAR(255),
+	    condition_codes JSONB DEFAULT '[]',
+	    resource JSONB NOT NULL,
+	    tenant_id VARCHAR(50) NOT NULL,
+	    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	    created_by VARCHAR(255),
+	    updated_by VARCHAR(255),
+	    deleted BOOLEAN DEFAULT false,
+	    
+	    CONSTRAINT family_member_history_resource_id_tenant_id_key UNIQUE (resource_id, tenant_id)
+	);
+	
+	-- Create indexes for FamilyMemberHistory
+	CREATE INDEX IF NOT EXISTS idx_family_member_history_resource_id ON platform.family_member_history(resource_id) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_family_member_history_tenant_id ON platform.family_member_history(tenant_id) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_family_member_history_status ON platform.family_member_history(status_code) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_family_member_history_patient ON platform.family_member_history(patient) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_family_member_history_date ON platform.family_member_history(date) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_family_member_history_relationship_code ON platform.family_member_history(relationship_code) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_family_member_history_name ON platform.family_member_history(LOWER(name)) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_family_member_history_patient_date ON platform.family_member_history(patient, date DESC) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_family_member_history_patient_relationship ON platform.family_member_history(patient, relationship_code) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_family_member_history_patient_status ON platform.family_member_history(patient, status_code) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_family_member_history_condition_codes ON platform.family_member_history USING gin(condition_codes) WHERE deleted = false;
+	CREATE INDEX IF NOT EXISTS idx_family_member_history_identifier ON platform.family_member_history USING gin(identifier) WHERE deleted = false;
+	
+	-- ====================================================================
+	-- PLATFORM SCHEMA TABLES
+	-- ====================================================================
+	
+	-- Tenants table
+	CREATE TABLE IF NOT EXISTS platform.tenants (
+	    tenant_id VARCHAR(50) PRIMARY KEY,
+	    tenant_name VARCHAR(255) NOT NULL,
+	    display_name VARCHAR(255),
+	    description TEXT,
+	    status VARCHAR(20) DEFAULT 'active',
+	    settings JSONB DEFAULT '{}',
+	    features JSONB DEFAULT '{}',
+	    metadata JSONB DEFAULT '{}',
+	    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    created_by VARCHAR(255),
+	    contact_email VARCHAR(255),
+	    contact_phone VARCHAR(50),
+	    address JSONB,
+	    billing_info JSONB,
+	    subscription_tier VARCHAR(50) DEFAULT 'basic',
+	    subscription_expires_at TIMESTAMP,
+	    storage_quota_gb INTEGER DEFAULT 10,
+	    storage_used_gb NUMERIC(10,2) DEFAULT 0,
+	    api_rate_limit INTEGER DEFAULT 1000,
+	    max_users INTEGER DEFAULT 50,
+	    custom_domain VARCHAR(255),
+	    security_settings JSONB DEFAULT '{}'
+	);
+	
+	-- Create indexes for tenants
+	CREATE INDEX IF NOT EXISTS idx_tenants_status ON platform.tenants(status);
+	CREATE INDEX IF NOT EXISTS idx_tenants_created_at ON platform.tenants(created_at);
+	CREATE INDEX IF NOT EXISTS idx_tenants_subscription_tier ON platform.tenants(subscription_tier);
+	
+	-- FHIR Resources table
+	CREATE TABLE IF NOT EXISTS platform.fhir_resources (
+	    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+	    tenant_id VARCHAR(50) NOT NULL,
+	    resource_type VARCHAR(50) NOT NULL,
+	    resource_id VARCHAR(255) NOT NULL,
+	    version_id INTEGER NOT NULL DEFAULT 1,
+	    data JSONB NOT NULL,
+	    status VARCHAR(20) DEFAULT 'active',
+	    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    created_by VARCHAR(255),
+	    updated_by VARCHAR(255),
+	    deleted_at TIMESTAMP,
+	    deleted_by VARCHAR(255),
+	    metadata JSONB DEFAULT '{}',
+	    search_params JSONB DEFAULT '{}',
+	    compartments JSONB DEFAULT '[]',
+	    
+	    CONSTRAINT unique_resource_version UNIQUE (tenant_id, resource_type, resource_id, version_id)
+	);
+	
+	-- Create indexes for FHIR resources
+	CREATE INDEX IF NOT EXISTS idx_fhir_tenant_type_id ON platform.fhir_resources(tenant_id, resource_type, resource_id);
+	CREATE INDEX IF NOT EXISTS idx_fhir_resource_type ON platform.fhir_resources(resource_type);
+	CREATE INDEX IF NOT EXISTS idx_fhir_status ON platform.fhir_resources(status);
+	CREATE INDEX IF NOT EXISTS idx_fhir_created_at ON platform.fhir_resources(created_at);
+	CREATE INDEX IF NOT EXISTS idx_fhir_updated_at ON platform.fhir_resources(updated_at);
+	CREATE INDEX IF NOT EXISTS idx_fhir_data_gin ON platform.fhir_resources USING gin(data);
+	CREATE INDEX IF NOT EXISTS idx_fhir_search_params_gin ON platform.fhir_resources USING gin(search_params);
+	CREATE INDEX IF NOT EXISTS idx_fhir_compartments_gin ON platform.fhir_resources USING gin(compartments);
+	
+	-- FHIR Extension Definitions
+	CREATE TABLE IF NOT EXISTS platform.fhir_extension_definitions (
+	    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+	    tenant_id VARCHAR(50) NOT NULL,
+	    url VARCHAR(500) NOT NULL,
+	    version VARCHAR(50),
+	    name VARCHAR(255) NOT NULL,
+	    title VARCHAR(500),
+	    status VARCHAR(20) DEFAULT 'draft',
+	    experimental BOOLEAN DEFAULT false,
+	    date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    publisher VARCHAR(255),
+	    contact JSONB,
+	    description TEXT,
+	    purpose TEXT,
+	    copyright TEXT,
+	    context JSONB NOT NULL,
+	    type VARCHAR(50) NOT NULL,
+	    base_definition VARCHAR(500),
+	    derivation VARCHAR(20),
+	    snapshot JSONB,
+	    differential JSONB,
+	    metadata JSONB DEFAULT '{}',
+	    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    
+	    CONSTRAINT unique_extension_url_version UNIQUE (tenant_id, url, version)
+	);
+	
+	-- Create indexes for extension definitions
+	CREATE INDEX IF NOT EXISTS idx_extension_tenant_url ON platform.fhir_extension_definitions(tenant_id, url);
+	CREATE INDEX IF NOT EXISTS idx_extension_status ON platform.fhir_extension_definitions(status);
+	CREATE INDEX IF NOT EXISTS idx_extension_type ON platform.fhir_extension_definitions(type);
+	
+	-- Business Resources table
+	CREATE TABLE IF NOT EXISTS platform.business_resources (
+	    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+	    tenant_id VARCHAR(50) NOT NULL,
+	    resource_type VARCHAR(50) NOT NULL,
+	    resource_id VARCHAR(255) NOT NULL,
+	    version_id INTEGER NOT NULL DEFAULT 1,
+	    data JSONB NOT NULL,
+	    status VARCHAR(20) DEFAULT 'active',
+	    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    created_by VARCHAR(255),
+	    updated_by VARCHAR(255),
+	    deleted_at TIMESTAMP,
+	    deleted_by VARCHAR(255),
+	    metadata JSONB DEFAULT '{}',
+	    search_params JSONB DEFAULT '{}',
+	    
+	    CONSTRAINT unique_business_resource_version UNIQUE (tenant_id, resource_type, resource_id, version_id)
+	);
+	
+	-- Create indexes for business resources
+	CREATE INDEX IF NOT EXISTS idx_business_tenant_type_id ON platform.business_resources(tenant_id, resource_type, resource_id);
+	CREATE INDEX IF NOT EXISTS idx_business_resource_type ON platform.business_resources(resource_type);
+	CREATE INDEX IF NOT EXISTS idx_business_status ON platform.business_resources(status);
+	CREATE INDEX IF NOT EXISTS idx_business_data_gin ON platform.business_resources USING gin(data);
+	
+	-- Group table for FHIR Group resource
+	CREATE TABLE IF NOT EXISTS platform."group" (
+	    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+	    tenant_id VARCHAR(50) NOT NULL,
+	    group_id VARCHAR(255) NOT NULL,
+	    version_id INTEGER NOT NULL DEFAULT 1,
+	    active BOOLEAN DEFAULT true,
+	    type VARCHAR(50) NOT NULL,
+	    actual BOOLEAN NOT NULL,
+	    code JSONB,
+	    name VARCHAR(255),
+	    quantity INTEGER,
+	    managing_entity JSONB,
+	    characteristic JSONB,
+	    member JSONB,
+	    data JSONB NOT NULL,
+	    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    created_by VARCHAR(255),
+	    updated_by VARCHAR(255),
+	    deleted_at TIMESTAMP,
+	    status VARCHAR(20) DEFAULT 'active',
+	    
+	    CONSTRAINT unique_group_version UNIQUE (tenant_id, group_id, version_id)
+	);
+	
+	-- Create indexes for group table
+	CREATE INDEX IF NOT EXISTS idx_group_tenant_id ON platform."group"(tenant_id, group_id);
+	CREATE INDEX IF NOT EXISTS idx_group_type ON platform."group"(type);
+	CREATE INDEX IF NOT EXISTS idx_group_active ON platform."group"(active);
+	CREATE INDEX IF NOT EXISTS idx_group_data_gin ON platform."group" USING gin(data);
+	
+	-- View metadata table for ClickHouse views
+	CREATE TABLE IF NOT EXISTS platform.view_metadata (
+	    id SERIAL PRIMARY KEY,
+	    database_name VARCHAR(255) NOT NULL,
+	    view_name VARCHAR(255) NOT NULL,
+	    view_type VARCHAR(50) NOT NULL,
+	    description TEXT,
+	    category VARCHAR(100),
+	    tags TEXT[],
+	    dependencies TEXT[],
+	    refresh_schedule VARCHAR(100),
+	    last_refreshed TIMESTAMP,
+	    is_active BOOLEAN DEFAULT true,
+	    metadata JSONB DEFAULT '{}',
+	    created_by VARCHAR(255),
+	    updated_by VARCHAR(255),
+	    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    
+	    CONSTRAINT unique_database_view UNIQUE (database_name, view_name)
+	);
+	
+	-- Create indexes for view metadata
+	CREATE INDEX IF NOT EXISTS idx_view_metadata_database ON platform.view_metadata(database_name);
+	CREATE INDEX IF NOT EXISTS idx_view_metadata_category ON platform.view_metadata(category);
+	CREATE INDEX IF NOT EXISTS idx_view_metadata_active ON platform.view_metadata(is_active);
+	CREATE INDEX IF NOT EXISTS idx_view_metadata_tags ON platform.view_metadata USING gin(tags);
+	
+	-- ====================================================================
+	-- AUTH SCHEMA TABLES
+	-- ====================================================================
+	
+	-- Users table
+	CREATE TABLE IF NOT EXISTS auth.users (
+	    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+	    tenant_id VARCHAR(50) NOT NULL,
+	    username VARCHAR(255) NOT NULL,
+	    email VARCHAR(255) NOT NULL,
+	    password_hash VARCHAR(255) NOT NULL,
+	    first_name VARCHAR(100),
+	    last_name VARCHAR(100),
+	    display_name VARCHAR(255),
+	    avatar_url TEXT,
+	    role VARCHAR(50) DEFAULT 'user',
+	    permissions JSONB DEFAULT '[]',
+	    status VARCHAR(20) DEFAULT 'active',
+	    email_verified BOOLEAN DEFAULT false,
+	    email_verified_at TIMESTAMP,
+	    last_login_at TIMESTAMP,
+	    login_count INTEGER DEFAULT 0,
+	    failed_login_attempts INTEGER DEFAULT 0,
+	    locked_until TIMESTAMP,
+	    password_reset_token VARCHAR(255),
+	    password_reset_expires TIMESTAMP,
+	    two_factor_enabled BOOLEAN DEFAULT false,
+	    two_factor_secret VARCHAR(255),
+	    preferences JSONB DEFAULT '{}',
+	    metadata JSONB DEFAULT '{}',
+	    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    
+	    CONSTRAINT unique_username_tenant UNIQUE (username, tenant_id),
+	    CONSTRAINT unique_email_tenant UNIQUE (email, tenant_id)
+	);
+	
+	-- Create indexes for users
+	CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON auth.users(tenant_id);
+	CREATE INDEX IF NOT EXISTS idx_users_username ON auth.users(username);
+	CREATE INDEX IF NOT EXISTS idx_users_email ON auth.users(email);
+	CREATE INDEX IF NOT EXISTS idx_users_role ON auth.users(role);
+	CREATE INDEX IF NOT EXISTS idx_users_status ON auth.users(status);
+	
+	-- Sessions table
+	CREATE TABLE IF NOT EXISTS auth.sessions (
+	    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+	    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+	    tenant_id VARCHAR(50) NOT NULL,
+	    token VARCHAR(500) NOT NULL UNIQUE,
+	    refresh_token VARCHAR(500),
+	    ip_address INET,
+	    user_agent TEXT,
+	    device_info JSONB,
+	    expires_at TIMESTAMP NOT NULL,
+	    refresh_expires_at TIMESTAMP,
+	    revoked_at TIMESTAMP,
+	    revoked_by VARCHAR(255),
+	    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
+	
+	-- Create indexes for sessions
+	CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON auth.sessions(user_id);
+	CREATE INDEX IF NOT EXISTS idx_sessions_token ON auth.sessions(token);
+	CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON auth.sessions(expires_at);
+	CREATE INDEX IF NOT EXISTS idx_sessions_tenant_id ON auth.sessions(tenant_id);
+	
+	-- Roles table
+	CREATE TABLE IF NOT EXISTS auth.roles (
+	    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+	    tenant_id VARCHAR(50) NOT NULL,
+	    role_name VARCHAR(100) NOT NULL,
+	    display_name VARCHAR(255),
+	    description TEXT,
+	    permissions JSONB NOT NULL DEFAULT '[]',
+	    is_system BOOLEAN DEFAULT false,
+	    is_active BOOLEAN DEFAULT true,
+	    metadata JSONB DEFAULT '{}',
+	    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    
+	    CONSTRAINT unique_role_tenant UNIQUE (role_name, tenant_id)
+	);
+	
+	-- Create indexes for roles
+	CREATE INDEX IF NOT EXISTS idx_roles_tenant_id ON auth.roles(tenant_id);
+	CREATE INDEX IF NOT EXISTS idx_roles_role_name ON auth.roles(role_name);
+	CREATE INDEX IF NOT EXISTS idx_roles_is_active ON auth.roles(is_active);
+	
+	-- User roles junction table
+	CREATE TABLE IF NOT EXISTS auth.user_roles (
+	    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+	    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+	    role_id UUID NOT NULL REFERENCES auth.roles(id) ON DELETE CASCADE,
+	    assigned_by VARCHAR(255),
+	    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    expires_at TIMESTAMP,
+	    
+	    CONSTRAINT unique_user_role UNIQUE (user_id, role_id)
+	);
+	
+	-- Create indexes for user roles
+	CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON auth.user_roles(user_id);
+	CREATE INDEX IF NOT EXISTS idx_user_roles_role_id ON auth.user_roles(role_id);
+	
+	-- Audit log table
+	CREATE TABLE IF NOT EXISTS auth.audit_log (
+	    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+	    tenant_id VARCHAR(50) NOT NULL,
+	    user_id UUID,
+	    action VARCHAR(100) NOT NULL,
+	    resource_type VARCHAR(100),
+	    resource_id VARCHAR(255),
+	    details JSONB,
+	    ip_address INET,
+	    user_agent TEXT,
+	    status VARCHAR(20),
+	    error_message TEXT,
+	    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
+	
+	-- Create indexes for audit log
+	CREATE INDEX IF NOT EXISTS idx_audit_tenant_id ON auth.audit_log(tenant_id);
+	CREATE INDEX IF NOT EXISTS idx_audit_user_id ON auth.audit_log(user_id);
+	CREATE INDEX IF NOT EXISTS idx_audit_action ON auth.audit_log(action);
+	CREATE INDEX IF NOT EXISTS idx_audit_created_at ON auth.audit_log(created_at);
+	CREATE INDEX IF NOT EXISTS idx_audit_resource ON auth.audit_log(resource_type, resource_id);
+	
+	-- ====================================================================
+	-- ANALYTICS SCHEMA TABLES
+	-- ====================================================================
+	
+	-- Metrics definitions table
+	CREATE TABLE IF NOT EXISTS analytics.metric_definitions (
+	    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+	    tenant_id VARCHAR(50) NOT NULL,
+	    metric_id VARCHAR(255) NOT NULL,
+	    metric_name VARCHAR(255) NOT NULL,
+	    metric_type VARCHAR(50) NOT NULL,
+	    category VARCHAR(100),
+	    description TEXT,
+	    calculation_sql TEXT NOT NULL,
+	    parameters JSONB DEFAULT '{}',
+	    dimensions JSONB DEFAULT '[]',
+	    filters JSONB DEFAULT '[]',
+	    aggregations JSONB DEFAULT '[]',
+	    visualization_config JSONB DEFAULT '{}',
+	    cache_duration INTEGER DEFAULT 300,
+	    is_realtime BOOLEAN DEFAULT false,
+	    is_active BOOLEAN DEFAULT true,
+	    metadata JSONB DEFAULT '{}',
+	    created_by VARCHAR(255),
+	    updated_by VARCHAR(255),
+	    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    
+	    CONSTRAINT unique_metric_tenant UNIQUE (metric_id, tenant_id)
+	);
+	
+	-- Create indexes for metric definitions
+	CREATE INDEX IF NOT EXISTS idx_metrics_tenant_id ON analytics.metric_definitions(tenant_id, metric_id);
+	CREATE INDEX IF NOT EXISTS idx_metrics_category ON analytics.metric_definitions(category);
+	CREATE INDEX IF NOT EXISTS idx_metrics_type ON analytics.metric_definitions(metric_type);
+	CREATE INDEX IF NOT EXISTS idx_metrics_active ON analytics.metric_definitions(is_active);
+	
+	-- Dashboard definitions table
+	CREATE TABLE IF NOT EXISTS analytics.dashboard_definitions (
+	    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+	    tenant_id VARCHAR(50) NOT NULL,
+	    dashboard_id VARCHAR(255) NOT NULL,
+	    dashboard_name VARCHAR(255) NOT NULL,
+	    description TEXT,
+	    category VARCHAR(100),
+	    layout_config JSONB NOT NULL,
+	    widgets JSONB NOT NULL DEFAULT '[]',
+	    filters JSONB DEFAULT '[]',
+	    refresh_interval INTEGER,
+	    is_public BOOLEAN DEFAULT false,
+	    is_active BOOLEAN DEFAULT true,
+	    metadata JSONB DEFAULT '{}',
+	    created_by VARCHAR(255),
+	    updated_by VARCHAR(255),
+	    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    
+	    CONSTRAINT unique_dashboard_tenant UNIQUE (dashboard_id, tenant_id)
+	);
+	
+	-- Create indexes for dashboard definitions
+	CREATE INDEX IF NOT EXISTS idx_dashboards_tenant_id ON analytics.dashboard_definitions(tenant_id, dashboard_id);
+	CREATE INDEX IF NOT EXISTS idx_dashboards_category ON analytics.dashboard_definitions(category);
+	CREATE INDEX IF NOT EXISTS idx_dashboards_active ON analytics.dashboard_definitions(is_active);
+	
+	-- Report templates table
+	CREATE TABLE IF NOT EXISTS analytics.report_templates (
+	    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+	    tenant_id VARCHAR(50) NOT NULL,
+	    template_id VARCHAR(255) NOT NULL,
+	    template_name VARCHAR(255) NOT NULL,
+	    description TEXT,
+	    category VARCHAR(100),
+	    report_type VARCHAR(50) NOT NULL,
+	    template_config JSONB NOT NULL,
+	    parameters JSONB DEFAULT '{}',
+	    schedule_config JSONB,
+	    output_formats JSONB DEFAULT '["pdf", "excel"]',
+	    is_active BOOLEAN DEFAULT true,
+	    metadata JSONB DEFAULT '{}',
+	    created_by VARCHAR(255),
+	    updated_by VARCHAR(255),
+	    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    
+	    CONSTRAINT unique_template_tenant UNIQUE (template_id, tenant_id)
+	);
+	
+	-- Create indexes for report templates
+	CREATE INDEX IF NOT EXISTS idx_templates_tenant_id ON analytics.report_templates(tenant_id, template_id);
+	CREATE INDEX IF NOT EXISTS idx_templates_category ON analytics.report_templates(category);
+	CREATE INDEX IF NOT EXISTS idx_templates_type ON analytics.report_templates(report_type);
+	
+	-- ====================================================================
+	-- WORKFLOW ENGINE SCHEMA TABLES
+	-- ====================================================================
+	
+	-- Workflow definitions table
+	CREATE TABLE IF NOT EXISTS workflowengine.workflow_definitions (
+	    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+	    tenant_id VARCHAR(50) NOT NULL,
+	    workflow_id VARCHAR(255) NOT NULL,
+	    workflow_name VARCHAR(255) NOT NULL,
+	    version VARCHAR(50) NOT NULL DEFAULT '1.0.0',
+	    description TEXT,
+	    category VARCHAR(100),
+	    bpmn_xml TEXT NOT NULL,
+	    variables JSONB DEFAULT '{}',
+	    input_schema JSONB,
+	    output_schema JSONB,
+	    roles JSONB DEFAULT '[]',
+	    sla_config JSONB,
+	    is_active BOOLEAN DEFAULT true,
+	    is_published BOOLEAN DEFAULT false,
+	    metadata JSONB DEFAULT '{}',
+	    created_by VARCHAR(255),
+	    updated_by VARCHAR(255),
+	    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    published_at TIMESTAMP,
+	    
+	    CONSTRAINT unique_workflow_version UNIQUE (tenant_id, workflow_id, version)
+	);
+	
+	-- Create indexes for workflow definitions
+	CREATE INDEX IF NOT EXISTS idx_workflow_defs_tenant_id ON workflowengine.workflow_definitions(tenant_id, workflow_id);
+	CREATE INDEX IF NOT EXISTS idx_workflow_defs_category ON workflowengine.workflow_definitions(category);
+	CREATE INDEX IF NOT EXISTS idx_workflow_defs_active ON workflowengine.workflow_definitions(is_active);
+	CREATE INDEX IF NOT EXISTS idx_workflow_defs_published ON workflowengine.workflow_definitions(is_published);
+	
+	-- Workflow instances table
+	CREATE TABLE IF NOT EXISTS workflowengine.workflow_instances (
+	    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+	    tenant_id VARCHAR(50) NOT NULL,
+	    instance_id VARCHAR(255) NOT NULL,
+	    workflow_definition_id UUID REFERENCES workflowengine.workflow_definitions(id),
+	    parent_instance_id VARCHAR(255),
+	    business_key VARCHAR(255),
+	    status VARCHAR(50) NOT NULL DEFAULT 'active',
+	    variables JSONB DEFAULT '{}',
+	    current_activities JSONB DEFAULT '[]',
+	    history JSONB DEFAULT '[]',
+	    error_details JSONB,
+	    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    completed_at TIMESTAMP,
+	    suspended_at TIMESTAMP,
+	    cancelled_at TIMESTAMP,
+	    due_date TIMESTAMP,
+	    priority INTEGER DEFAULT 5,
+	    metadata JSONB DEFAULT '{}',
+	    
+	    CONSTRAINT unique_instance_tenant UNIQUE (instance_id, tenant_id)
+	);
+	
+	-- Create indexes for workflow instances
+	CREATE INDEX IF NOT EXISTS idx_workflow_inst_tenant_id ON workflowengine.workflow_instances(tenant_id, instance_id);
+	CREATE INDEX IF NOT EXISTS idx_workflow_inst_status ON workflowengine.workflow_instances(status);
+	CREATE INDEX IF NOT EXISTS idx_workflow_inst_business_key ON workflowengine.workflow_instances(business_key);
+	CREATE INDEX IF NOT EXISTS idx_workflow_inst_started_at ON workflowengine.workflow_instances(started_at);
+	
+	-- Human tasks table
+	CREATE TABLE IF NOT EXISTS workflowengine.human_tasks (
+	    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+	    tenant_id VARCHAR(50) NOT NULL,
+	    task_id VARCHAR(255) NOT NULL,
+	    workflow_instance_id UUID REFERENCES workflowengine.workflow_instances(id),
+	    task_definition_key VARCHAR(255) NOT NULL,
+	    name VARCHAR(255) NOT NULL,
+	    description TEXT,
+	    assignee VARCHAR(255),
+	    candidate_users JSONB DEFAULT '[]',
+	    candidate_groups JSONB DEFAULT '[]',
+	    priority INTEGER DEFAULT 5,
+	    due_date TIMESTAMP,
+	    status VARCHAR(50) NOT NULL DEFAULT 'created',
+	    form_data JSONB,
+	    variables JSONB DEFAULT '{}',
+	    comments JSONB DEFAULT '[]',
+	    attachments JSONB DEFAULT '[]',
+	    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    claimed_at TIMESTAMP,
+	    completed_at TIMESTAMP,
+	    completed_by VARCHAR(255),
+	    outcome VARCHAR(100),
+	    metadata JSONB DEFAULT '{}',
+	    
+	    CONSTRAINT unique_task_tenant UNIQUE (task_id, tenant_id)
+	);
+	
+	-- Create indexes for human tasks
+	CREATE INDEX IF NOT EXISTS idx_tasks_tenant_id ON workflowengine.human_tasks(tenant_id, task_id);
+	CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON workflowengine.human_tasks(assignee);
+	CREATE INDEX IF NOT EXISTS idx_tasks_status ON workflowengine.human_tasks(status);
+	CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON workflowengine.human_tasks(due_date);
+	CREATE INDEX IF NOT EXISTS idx_tasks_workflow_instance ON workflowengine.human_tasks(workflow_instance_id);
+	
+	-- ====================================================================
+	-- FUNCTIONS AND TRIGGERS
+	-- ====================================================================
+	
+	-- Function to update updated_at timestamp
+	CREATE OR REPLACE FUNCTION update_updated_at_column()
+	RETURNS TRIGGER AS $$
+	BEGIN
+	    NEW.updated_at = CURRENT_TIMESTAMP;
+	    RETURN NEW;
+	END;
+	$$ LANGUAGE plpgsql;
+	
+	-- Create update triggers for all tables with updated_at column
+	DO $$
+	DECLARE
+	    t record;
+	BEGIN
+	    FOR t IN 
+	        SELECT schemaname, tablename 
+	        FROM pg_tables 
+	        WHERE schemaname IN ('platform', 'auth', 'analytics', 'workflowengine')
+	        AND tablename NOT LIKE 'pg_%'
+	    LOOP
+	        EXECUTE format('
+	            CREATE TRIGGER update_%I_%I_updated_at 
+	            BEFORE UPDATE ON %I.%I 
+	            FOR EACH ROW 
+	            EXECUTE FUNCTION update_updated_at_column()',
+	            t.schemaname, t.tablename, t.schemaname, t.tablename
+	        );
+	    END LOOP;
+	EXCEPTION
+	    WHEN duplicate_object THEN
+	        NULL; -- Ignore if trigger already exists
+	END $$;
+	
+	-- Function to validate FHIR resource structure
+	CREATE OR REPLACE FUNCTION platform.validate_fhir_resource()
+	RETURNS TRIGGER AS $$
+	BEGIN
+	    -- Ensure resourceType matches
+	    IF NEW.data->>'resourceType' != NEW.resource_type THEN
+	        RAISE EXCEPTION 'Resource type mismatch: % != %', 
+	            NEW.data->>'resourceType', NEW.resource_type;
+	    END IF;
+	    
+	    -- Ensure resource has an id
+	    IF NEW.data->>'id' IS NULL OR NEW.data->>'id' = '' THEN
+	        NEW.data = jsonb_set(NEW.data, '{id}', to_jsonb(NEW.resource_id));
+	    END IF;
+	    
+	    -- Set meta.versionId
+	    NEW.data = jsonb_set(
+	        NEW.data, 
+	        '{meta,versionId}', 
+	        to_jsonb(NEW.version_id::text)
+	    );
+	    
+	    -- Set meta.lastUpdated
+	    NEW.data = jsonb_set(
+	        NEW.data, 
+	        '{meta,lastUpdated}', 
+	        to_jsonb(to_char(NEW.updated_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+	    );
+	    
+	    RETURN NEW;
+	END;
+	$$ LANGUAGE plpgsql;
+	
+	-- Create validation trigger for FHIR resources
+	CREATE TRIGGER validate_fhir_resource_before_insert_update
+	BEFORE INSERT OR UPDATE ON platform.fhir_resources
+	FOR EACH ROW
+	EXECUTE FUNCTION platform.validate_fhir_resource();
+	
+	-- Function to generate search parameters for FHIR resources
+	CREATE OR REPLACE FUNCTION platform.generate_fhir_search_params()
+	RETURNS TRIGGER AS $$
+	BEGIN
+	    -- Generate common search parameters based on resource type
+	    NEW.search_params = jsonb_build_object(
+	        '_id', NEW.resource_id,
+	        '_lastUpdated', NEW.updated_at,
+	        'status', COALESCE(NEW.data->>'status', NEW.status)
+	    );
+	    
+	    -- Add resource-specific search parameters
+	    CASE NEW.resource_type
+	        WHEN 'Patient' THEN
+	            NEW.search_params = NEW.search_params || jsonb_build_object(
+	                'identifier', NEW.data->'identifier',
+	                'name', NEW.data->'name',
+	                'birthdate', NEW.data->>'birthDate',
+	                'gender', NEW.data->>'gender',
+	                'active', NEW.data->>'active'
+	            );
+	        WHEN 'Practitioner' THEN
+	            NEW.search_params = NEW.search_params || jsonb_build_object(
+	                'identifier', NEW.data->'identifier',
+	                'name', NEW.data->'name',
+	                'active', NEW.data->>'active'
+	            );
+	        WHEN 'Encounter' THEN
+	            NEW.search_params = NEW.search_params || jsonb_build_object(
+	                'identifier', NEW.data->'identifier',
+	                'class', NEW.data->'class',
+	                'patient', NEW.data->'subject',
+	                'period', NEW.data->'period'
+	            );
+	        WHEN 'Observation' THEN
+	            NEW.search_params = NEW.search_params || jsonb_build_object(
+	                'code', NEW.data->'code',
+	                'patient', NEW.data->'subject',
+	                'encounter', NEW.data->'encounter',
+	                'date', NEW.data->>'effectiveDateTime'
+	            );
+	        ELSE
+	            -- Keep basic search params
+	    END CASE;
+	    
+	    RETURN NEW;
+	END;
+	$$ LANGUAGE plpgsql;
+	
+	-- Create search params generation trigger
+	CREATE TRIGGER generate_search_params_before_insert_update
+	BEFORE INSERT OR UPDATE ON platform.fhir_resources
+	FOR EACH ROW
+	EXECUTE FUNCTION platform.generate_fhir_search_params();
+	
+	-- Function to handle soft deletes
+	CREATE OR REPLACE FUNCTION platform.handle_soft_delete()
+	RETURNS TRIGGER AS $$
+	BEGIN
+	    IF NEW.deleted_at IS NOT NULL AND OLD.deleted_at IS NULL THEN
+	        NEW.status = 'deleted';
+	    END IF;
+	    RETURN NEW;
+	END;
+	$$ LANGUAGE plpgsql;
+	
+	-- Create soft delete triggers
+	CREATE TRIGGER handle_fhir_soft_delete
+	BEFORE UPDATE ON platform.fhir_resources
+	FOR EACH ROW
+	EXECUTE FUNCTION platform.handle_soft_delete();
+	
+	CREATE TRIGGER handle_business_soft_delete
+	BEFORE UPDATE ON platform.business_resources
+	FOR EACH ROW
+	EXECUTE FUNCTION platform.handle_soft_delete();
+	
+	-- ====================================================================
+	-- INITIAL DATA SETUP
+	-- ====================================================================
+	
+	-- Insert default tenant if not exists
+	INSERT INTO platform.tenants (
+	    tenant_id, 
+	    tenant_name, 
+	    display_name, 
+	    description,
+	    status,
+	    subscription_tier
+	) VALUES (
+	    'default',
+	    'Default Tenant',
+	    'Default Organization',
+	    'Default tenant for initial setup',
+	    'active',
+	    'enterprise'
+	) ON CONFLICT (tenant_id) DO NOTHING;
+	
+	-- Insert default admin role if not exists
+	INSERT INTO auth.roles (
+	    tenant_id,
+	    role_name,
+	    display_name,
+	    description,
+	    permissions,
+	    is_system
+	) VALUES (
+	    'default',
+	    'admin',
+	    'Administrator',
+	    'Full system access',
+	    '["*"]'::jsonb,
+	    true
+	) ON CONFLICT (tenant_id, role_name) DO NOTHING;
+	
+	-- Insert default user role if not exists
+	INSERT INTO auth.roles (
+	    tenant_id,
+	    role_name,
+	    display_name,
+	    description,
+	    permissions,
+	    is_system
+	) VALUES (
+	    'default',
+	    'user',
+	    'User',
+	    'Standard user access',
+	    '["read:*", "write:own"]'::jsonb,
+	    true
+	) ON CONFLICT (tenant_id, role_name) DO NOTHING;
+	
+	-- ====================================================================
+	-- GRANTS AND PERMISSIONS
+	-- ====================================================================
+	
+	-- Grant appropriate permissions to application user
+	-- Note: Replace 'nexus_admin' with your actual application database user
+	DO $$
+	BEGIN
+	    -- Grant schema usage
+	    GRANT USAGE ON SCHEMA platform TO nexus_admin;
+	    GRANT USAGE ON SCHEMA auth TO nexus_admin;
+	    GRANT USAGE ON SCHEMA analytics TO nexus_admin;
+	    GRANT USAGE ON SCHEMA workflowengine TO nexus_admin;
+	    GRANT USAGE ON SCHEMA tenant_default TO nexus_admin;
+	    
+	    -- Grant table permissions
+	    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA platform TO nexus_admin;
+	    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA auth TO nexus_admin;
+	    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA analytics TO nexus_admin;
+	    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA workflowengine TO nexus_admin;
+	    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA tenant_default TO nexus_admin;
+	    
+	    -- Grant sequence permissions
+	    GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA platform TO nexus_admin;
+	    GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA auth TO nexus_admin;
+	    GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA analytics TO nexus_admin;
+	    GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA workflowengine TO nexus_admin;
+	    GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA tenant_default TO nexus_admin;
+	    
+	    -- Set default privileges for future objects
+	    ALTER DEFAULT PRIVILEGES IN SCHEMA platform GRANT ALL ON TABLES TO nexus_admin;
+	    ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON TABLES TO nexus_admin;
+	    ALTER DEFAULT PRIVILEGES IN SCHEMA analytics GRANT ALL ON TABLES TO nexus_admin;
+	    ALTER DEFAULT PRIVILEGES IN SCHEMA workflowengine GRANT ALL ON TABLES TO nexus_admin;
+	    ALTER DEFAULT PRIVILEGES IN SCHEMA tenant_default GRANT ALL ON TABLES TO nexus_admin;
+	    
+	    ALTER DEFAULT PRIVILEGES IN SCHEMA platform GRANT ALL ON SEQUENCES TO nexus_admin;
+	    ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON SEQUENCES TO nexus_admin;
+	    ALTER DEFAULT PRIVILEGES IN SCHEMA analytics GRANT ALL ON SEQUENCES TO nexus_admin;
+	    ALTER DEFAULT PRIVILEGES IN SCHEMA workflowengine GRANT ALL ON SEQUENCES TO nexus_admin;
+	    ALTER DEFAULT PRIVILEGES IN SCHEMA tenant_default GRANT ALL ON SEQUENCES TO nexus_admin;
+	EXCEPTION
+	    WHEN undefined_object THEN
+	        RAISE NOTICE 'User nexus_admin does not exist, skipping grants';
+	END $$;
+	
+	-- ====================================================================
+	-- ADDITIONAL INDEXES FOR PERFORMANCE
+	-- ====================================================================
+	
+	-- Composite indexes for common query patterns
+	CREATE INDEX IF NOT EXISTS idx_fhir_tenant_type_status 
+	ON platform.fhir_resources(tenant_id, resource_type, status) 
+	WHERE deleted_at IS NULL;
+	
+	CREATE INDEX IF NOT EXISTS idx_fhir_patient_identifier 
+	ON platform.fhir_resources((data->'identifier'->0->>'value')) 
+	WHERE resource_type = 'Patient';
+	
+	CREATE INDEX IF NOT EXISTS idx_fhir_encounter_patient 
+	ON platform.fhir_resources((data->'subject'->>'reference')) 
+	WHERE resource_type = 'Encounter';
+	
+	CREATE INDEX IF NOT EXISTS idx_fhir_observation_patient 
+	ON platform.fhir_resources((data->'subject'->>'reference')) 
+	WHERE resource_type = 'Observation';
+	
+	-- Text search indexes
+	CREATE INDEX IF NOT EXISTS idx_fhir_patient_name_search 
+	ON platform.fhir_resources 
+	USING gin(to_tsvector('english', data::text)) 
+	WHERE resource_type = 'Patient';
+	
+	-- ====================================================================
+	-- MAINTENANCE FUNCTIONS
+	-- ====================================================================
+	
+	-- Function to clean up old sessions
+	CREATE OR REPLACE FUNCTION auth.cleanup_expired_sessions()
+	RETURNS INTEGER AS $$
+	DECLARE
+	    deleted_count INTEGER;
+	BEGIN
+	    DELETE FROM auth.sessions 
+	    WHERE expires_at < CURRENT_TIMESTAMP 
+	    AND revoked_at IS NULL;
+	    
+	    GET DIAGNOSTICS deleted_count = ROW_COUNT;
+	    RETURN deleted_count;
+	END;
+	$$ LANGUAGE plpgsql;
+	
+	-- Function to archive old audit logs
+	CREATE OR REPLACE FUNCTION auth.archive_old_audit_logs(days_to_keep INTEGER DEFAULT 90)
+	RETURNS INTEGER AS $$
+	DECLARE
+	    archived_count INTEGER;
+	BEGIN
+	    -- In a real implementation, you would move these to an archive table
+	    -- For now, we'll just count what would be archived
+	    SELECT COUNT(*) INTO archived_count
+	    FROM auth.audit_log
+	    WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '1 day' * days_to_keep;
+	    
+	    RETURN archived_count;
+	END;
+	$$ LANGUAGE plpgsql;
+	
+	-- ====================================================================
+	-- SCHEMA DOCUMENTATION
+	-- ====================================================================
+	
+	COMMENT ON SCHEMA platform IS 'Core platform schema for shared resources and configurations';
+	COMMENT ON SCHEMA auth IS 'Authentication and authorization schema';
+	COMMENT ON SCHEMA analytics IS 'Analytics and reporting schema';
+	COMMENT ON SCHEMA workflowengine IS 'Workflow engine schema for BPMN processes';
+	COMMENT ON SCHEMA tenant_default IS 'Default tenant-specific schema';
+	
+	COMMENT ON TABLE platform.fhir_resources IS 'Stores all FHIR R4 resources with versioning';
+	COMMENT ON TABLE platform.tenants IS 'Multi-tenant configuration and settings';
+	COMMENT ON TABLE platform.claimresponse IS 'FHIR R4 ClaimResponse resources - stores adjudication details from processing claims';
+	COMMENT ON TABLE platform.family_member_history IS 'FHIR R4 FamilyMemberHistory resources - stores information about family member health history relevant to patient care';
+	COMMENT ON TABLE auth.users IS 'User accounts and profiles';
+	COMMENT ON TABLE auth.sessions IS 'Active user sessions and tokens';
+	COMMENT ON TABLE workflowengine.workflow_definitions IS 'BPMN workflow definitions';
+	COMMENT ON TABLE workflowengine.workflow_instances IS 'Running workflow instances';
+	
+	-- ====================================================================
+	-- END OF BASELINE SCHEMA
+	-- ====================================================================
+2025-11-17 15:55:53.176 IST [49114] LOG:  checkpoint starting: immediate force wait
+2025-11-17 15:55:53.178 IST [49114] LOG:  checkpoint complete: wrote 19 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.002 s, sync=0.001 s, total=0.003 s; sync files=9, longest=0.001 s, average=0.001 s; distance=5746 kB, estimate=6717 kB; lsn=0/2DCAF10, redo lsn=0/2DCAEB8
+2025-11-17 16:00:53.179 IST [49114] LOG:  checkpoint starting: time
+2025-11-17 16:02:34.748 IST [49114] LOG:  checkpoint complete: wrote 1004 buffers (6.1%); 0 WAL file(s) added, 0 removed, 1 recycled; write=101.558 s, sync=0.007 s, total=101.569 s; sync files=374, longest=0.001 s, average=0.001 s; distance=5195 kB, estimate=6564 kB; lsn=0/32DDE88, redo lsn=0/32DDDF8
+2025-11-17 16:10:53.751 IST [49114] LOG:  checkpoint starting: time
+2025-11-17 16:10:56.499 IST [49114] LOG:  checkpoint complete: wrote 27 buffers (0.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.745 s, sync=0.001 s, total=2.749 s; sync files=12, longest=0.001 s, average=0.001 s; distance=71 kB, estimate=5915 kB; lsn=0/32EFDE0, redo lsn=0/32EFD88
+2025-11-17 16:12:21.224 IST [10404] ERROR:  relation "otps" does not exist at character 13
+2025-11-17 16:12:21.224 IST [10404] STATEMENT:  INSERT INTO otps (email, otp_code, created_at, expires_at, is_used) VALUES ('test@example.com', '614726', '2025-11-17T10:42:21.223648'::timestamp, '2025-11-17T10:52:21.109464'::timestamp, 0) RETURNING otps.id
+2025-11-17 16:12:29.810 IST [10660] ERROR:  relation "otps" does not exist at character 13
+2025-11-17 16:12:29.810 IST [10660] STATEMENT:  INSERT INTO otps (email, otp_code, created_at, expires_at, is_used) VALUES ('test@example.com', '339787', '2025-11-17T10:42:29.810684'::timestamp, '2025-11-17T10:52:29.793603'::timestamp, 0) RETURNING otps.id
+2025-11-17 16:12:59.839 IST [11485] ERROR:  schema "platform" already exists
+2025-11-17 16:12:59.839 IST [11485] STATEMENT:  CREATE SCHEMA platform;
+	
+	
+	
+2025-11-17 16:14:11.197 IST [13488] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:14:11.197 IST [13488] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:14:24.261 IST [13486] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:14:24.261 IST [13486] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:14:42.211 IST [13490] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:14:42.211 IST [13490] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:14:55.181 IST [13489] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:14:55.181 IST [13489] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:15:13.200 IST [13385] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:15:13.200 IST [13385] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:15:26.257 IST [15872] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:15:26.257 IST [15872] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:15:44.258 IST [15495] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:15:44.258 IST [15495] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:15:53.500 IST [49114] LOG:  checkpoint starting: time
+2025-11-17 16:15:57.185 IST [15870] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:15:57.185 IST [15870] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:16:15.204 IST [16858] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:16:15.204 IST [16858] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:16:28.161 IST [17626] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:16:28.161 IST [17626] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:16:46.258 IST [18066] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:16:46.258 IST [18066] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:16:59.210 IST [16857] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:16:59.210 IST [16857] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:17:17.225 IST [18869] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:17:17.225 IST [18869] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:17:30.139 IST [18870] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:17:30.139 IST [18870] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:17:48.213 IST [15871] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:17:48.213 IST [15871] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:18:01.193 IST [17625] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:18:01.193 IST [17625] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:18:19.241 IST [19932] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:18:19.241 IST [19932] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:18:21.599 IST [20388] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:18:21.599 IST [20388] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:18:32.174 IST [19191] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:18:32.174 IST [19191] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:18:51.765 IST [21230] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:18:51.765 IST [21230] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:19:03.178 IST [20752] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:19:03.178 IST [20752] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:19:22.148 IST [15496] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:19:22.148 IST [15496] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:19:28.961 IST [22409] ERROR:  operator does not exist: text ->> integer at character 61
+2025-11-17 16:19:28.961 IST [22409] HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+2025-11-17 16:19:28.961 IST [22409] STATEMENT:  
+	      SELECT
+	        resource_id,
+	        resource->>'name'->>0->>'given'->>0 as first_name,
+	        resource->>'name'->>0->>'family' as last_name,
+	        resource->'identifier'->>0->>'value' as mrn
+	      FROM patient
+	      WHERE resource_id LIKE 'TEST-PAT-%'
+	      ORDER BY resource_id
+	    
+2025-11-17 16:19:34.143 IST [22156] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:19:34.143 IST [22156] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:19:53.177 IST [22157] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:19:53.177 IST [22157] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:20:05.221 IST [22158] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:20:05.221 IST [22158] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:20:23.090 IST [49114] LOG:  checkpoint complete: wrote 4515 buffers (27.6%); 0 WAL file(s) added, 0 removed, 2 recycled; write=269.536 s, sync=0.046 s, total=269.590 s; sync files=1017, longest=0.006 s, average=0.001 s; distance=37477 kB, estimate=37477 kB; lsn=0/5886C68, redo lsn=0/5789558
+2025-11-17 16:20:24.173 IST [22159] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:20:24.173 IST [22159] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:20:36.156 IST [24599] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:20:36.156 IST [24599] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:20:53.093 IST [49114] LOG:  checkpoint starting: time
+2025-11-17 16:20:54.230 IST [24915] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:20:54.230 IST [24915] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:21:06.774 IST [49114] LOG:  checkpoint complete: wrote 136 buffers (0.8%); 0 WAL file(s) added, 0 removed, 0 recycled; write=13.676 s, sync=0.003 s, total=13.682 s; sync files=45, longest=0.001 s, average=0.001 s; distance=1036 kB, estimate=33833 kB; lsn=0/58BF180, redo lsn=0/588C938
+2025-11-17 16:21:07.183 IST [25894] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:21:07.183 IST [25894] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:21:24.308 IST [23540] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:21:24.308 IST [23540] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:21:38.196 IST [23228] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:21:38.196 IST [23228] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:21:55.161 IST [27081] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:21:55.161 IST [27081] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:22:09.208 IST [26312] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:22:09.208 IST [26312] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:22:26.204 IST [27845] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:22:26.204 IST [27845] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:22:40.190 IST [28181] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:22:40.190 IST [28181] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:22:57.134 IST [27846] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:22:57.134 IST [27846] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:23:11.212 IST [28965] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:23:11.212 IST [28965] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:23:28.126 IST [27080] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:23:28.126 IST [27080] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:23:42.198 IST [29865] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:23:42.198 IST [29865] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:23:59.121 IST [28964] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:23:59.121 IST [28964] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:24:13.157 IST [30319] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:24:13.157 IST [30319] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:24:30.186 IST [24914] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:24:30.186 IST [24914] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:24:44.162 IST [31118] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:24:44.162 IST [31118] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:25:01.181 IST [31120] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:25:01.181 IST [31120] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:25:15.190 IST [32520] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:25:15.190 IST [32520] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:25:32.143 IST [33332] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:25:32.143 IST [33332] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:25:46.195 IST [31121] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:25:46.195 IST [31121] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:25:53.781 IST [49114] LOG:  checkpoint starting: time
+2025-11-17 16:26:03.138 IST [31117] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:26:03.138 IST [31117] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:26:03.502 IST [49114] LOG:  checkpoint complete: wrote 97 buffers (0.6%); 0 WAL file(s) added, 0 removed, 0 recycled; write=9.717 s, sync=0.002 s, total=9.721 s; sync files=28, longest=0.001 s, average=0.001 s; distance=656 kB, estimate=30516 kB; lsn=0/5963FC0, redo lsn=0/5930A68
+2025-11-17 16:26:17.167 IST [33331] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:26:17.167 IST [33331] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:26:34.273 IST [36403] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:26:34.273 IST [36403] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:26:48.214 IST [35566] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:26:48.214 IST [35566] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:27:05.186 IST [35565] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:27:05.186 IST [35565] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:27:19.190 IST [31968] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:27:19.190 IST [31968] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:27:36.188 IST [39430] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:27:36.188 IST [39430] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:27:40.375 IST [37919] ERROR:  relation "platform.group" does not exist at character 49
+2025-11-17 16:27:40.375 IST [37919] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.group 
+	        WHERE tenant_id = $1 AND deleted = false AND member @> $2::jsonb
+	      
+2025-11-17 16:27:40.395 IST [37918] ERROR:  relation "platform.group" does not exist at character 49
+2025-11-17 16:27:40.395 IST [37918] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.group 
+	        WHERE tenant_id = $1 AND deleted = false AND member @> $2::jsonb
+	      
+2025-11-17 16:27:42.288 IST [39644] ERROR:  relation "platform.group" does not exist at character 49
+2025-11-17 16:27:42.288 IST [39644] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.group 
+	        WHERE tenant_id = $1 AND deleted = false AND member @> $2::jsonb
+	      
+2025-11-17 16:27:50.186 IST [40092] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:27:50.186 IST [40092] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:28:05.663 IST [39646] ERROR:  relation "platform.group" does not exist at character 49
+2025-11-17 16:28:05.663 IST [39646] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.group 
+	        WHERE tenant_id = $1 AND deleted = false AND member @> $2::jsonb
+	      
+2025-11-17 16:28:06.258 IST [39645] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:28:06.258 IST [39645] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:28:13.834 IST [40834] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:28:13.834 IST [40834] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:28:21.151 IST [41200] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:28:21.151 IST [41200] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:28:44.019 IST [42699] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:28:44.019 IST [42699] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:28:52.168 IST [42698] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:28:52.168 IST [42698] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:29:14.164 IST [44137] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:29:14.164 IST [44137] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:29:23.171 IST [39643] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:29:23.171 IST [39643] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:29:45.166 IST [45684] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:29:45.166 IST [45684] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:29:54.170 IST [45686] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:29:54.170 IST [45686] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:30:16.135 IST [47147] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:30:16.135 IST [47147] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:30:25.161 IST [45682] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:30:25.161 IST [45682] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:30:47.148 IST [45685] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:30:47.148 IST [45685] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:30:53.503 IST [49114] LOG:  checkpoint starting: time
+2025-11-17 16:30:56.182 IST [49107] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:30:56.182 IST [49107] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:31:07.390 IST [49114] LOG:  checkpoint complete: wrote 138 buffers (0.8%); 0 WAL file(s) added, 0 removed, 0 recycled; write=13.882 s, sync=0.002 s, total=13.888 s; sync files=36, longest=0.001 s, average=0.001 s; distance=853 kB, estimate=27549 kB; lsn=0/5A32970, redo lsn=0/5A06070
+2025-11-17 16:31:18.144 IST [45683] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:31:18.144 IST [45683] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:31:27.159 IST [48651] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:31:27.159 IST [48651] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:31:49.158 IST [47560] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:31:49.158 IST [47560] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:31:58.245 IST [51658] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:31:58.245 IST [51658] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:32:20.205 IST [53234] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:32:20.205 IST [53234] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:32:29.168 IST [53236] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:32:29.168 IST [53236] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:32:51.250 IST [54756] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:32:51.250 IST [54756] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:33:00.211 IST [54757] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:33:00.211 IST [54757] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:33:22.200 IST [56326] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:33:22.200 IST [56326] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:33:31.170 IST [50155] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:33:31.170 IST [50155] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:33:53.162 IST [52180] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:33:53.162 IST [52180] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:34:02.217 IST [58305] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:34:02.217 IST [58305] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:34:24.153 IST [49106] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:34:24.153 IST [49106] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:34:33.192 IST [59803] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:34:33.192 IST [59803] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:34:55.168 IST [57838] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:34:55.168 IST [57838] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:35:04.205 IST [60890] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:35:04.205 IST [60890] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:35:26.195 IST [60892] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:35:26.195 IST [60892] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:35:35.146 IST [60894] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:35:35.146 IST [60894] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:35:53.393 IST [49114] LOG:  checkpoint starting: time
+2025-11-17 16:35:57.146 IST [63931] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:35:57.146 IST [63931] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:36:01.811 IST [49114] LOG:  checkpoint complete: wrote 84 buffers (0.5%); 0 WAL file(s) added, 0 removed, 0 recycled; write=8.413 s, sync=0.003 s, total=8.418 s; sync files=25, longest=0.001 s, average=0.001 s; distance=560 kB, estimate=24850 kB; lsn=0/5AC03C0, redo lsn=0/5A923C8
+2025-11-17 16:36:06.170 IST [59333] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:36:06.170 IST [59333] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:36:28.154 IST [65424] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:36:28.154 IST [65424] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:36:37.144 IST [65423] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:36:37.144 IST [65423] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:36:59.227 IST [66916] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:36:59.227 IST [66916] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:37:08.247 IST [67364] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:37:08.247 IST [67364] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:37:30.143 IST [68399] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:37:30.143 IST [68399] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:37:39.236 IST [68809] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:37:39.236 IST [68809] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:38:01.176 IST [62450] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:38:01.176 IST [62450] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:38:10.180 IST [60895] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:38:10.180 IST [60895] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:38:32.173 IST [68400] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:38:32.173 IST [68400] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:38:41.201 IST [63932] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:38:41.201 IST [63932] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:39:03.188 IST [71392] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:39:03.188 IST [71392] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:39:12.178 IST [70273] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:39:12.178 IST [70273] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:39:34.178 IST [72993] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:39:34.178 IST [72993] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:39:43.185 IST [73415] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:39:43.185 IST [73415] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:40:05.157 IST [74991] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:40:05.157 IST [74991] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:40:14.316 IST [76089] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:40:14.316 IST [76089] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:40:36.151 IST [76090] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:40:36.151 IST [76090] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:40:45.163 IST [76088] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:40:45.163 IST [76088] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:40:53.812 IST [49114] LOG:  checkpoint starting: time
+2025-11-17 16:41:03.343 IST [49114] LOG:  checkpoint complete: wrote 95 buffers (0.6%); 0 WAL file(s) added, 0 removed, 0 recycled; write=9.525 s, sync=0.003 s, total=9.531 s; sync files=28, longest=0.001 s, average=0.001 s; distance=600 kB, estimate=22425 kB; lsn=0/5B286D0, redo lsn=0/5B28640
+2025-11-17 16:41:07.162 IST [76093] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:41:07.162 IST [76093] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:41:16.168 IST [77974] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:41:16.168 IST [77974] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:41:38.172 IST [76094] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:41:38.172 IST [76094] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:41:47.170 IST [80488] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:41:47.170 IST [80488] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:42:09.162 IST [78987] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:42:09.162 IST [78987] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:42:18.308 IST [82384] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:42:18.308 IST [82384] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:42:40.180 IST [81958] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:42:40.180 IST [81958] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:42:49.227 IST [83939] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:42:49.227 IST [83939] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:43:11.197 IST [77973] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:43:11.197 IST [77973] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:43:20.547 IST [83940] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:43:20.547 IST [83940] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:43:42.195 IST [86609] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:43:42.195 IST [86609] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:43:51.173 IST [79435] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:43:51.173 IST [79435] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:44:13.195 IST [88140] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:44:13.195 IST [88140] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:44:22.208 IST [81959] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:44:22.208 IST [81959] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:44:44.166 IST [87021] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:44:44.166 IST [87021] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:44:53.162 IST [88139] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:44:53.162 IST [88139] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:45:15.210 IST [85512] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:45:15.210 IST [85512] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:45:24.197 IST [91273] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:45:24.197 IST [91273] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:45:46.131 IST [91272] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:45:46.131 IST [91272] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:45:53.344 IST [49114] LOG:  checkpoint starting: time
+2025-11-17 16:45:55.181 IST [92769] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:45:55.181 IST [92769] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:46:03.085 IST [49114] LOG:  checkpoint complete: wrote 97 buffers (0.6%); 0 WAL file(s) added, 0 removed, 0 recycled; write=9.736 s, sync=0.002 s, total=9.742 s; sync files=33, longest=0.001 s, average=0.001 s; distance=574 kB, estimate=20240 kB; lsn=0/5BE8570, redo lsn=0/5BB80D8
+2025-11-17 16:46:17.156 IST [93177] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:46:17.156 IST [93177] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:46:26.307 IST [91271] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:46:26.307 IST [91271] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:46:48.224 IST [94239] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:46:48.224 IST [94239] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:46:57.208 IST [95742] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:46:57.208 IST [95742] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:47:19.191 IST [91274] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:47:19.191 IST [91274] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:47:28.128 IST [92770] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:47:28.128 IST [92770] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:47:50.200 IST [98807] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:47:50.200 IST [98807] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:47:59.192 IST [99276] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:47:59.192 IST [99276] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:48:21.164 IST [97737] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:48:21.164 IST [97737] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:48:30.135 IST [97282] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:48:30.135 IST [97282] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:48:52.154 IST [96190] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:48:52.154 IST [96190] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:49:01.172 IST [2165] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:49:01.172 IST [2165] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:49:23.181 IST [3595] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:49:23.181 IST [3595] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:49:32.149 IST [4043] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:49:32.149 IST [4043] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:49:54.185 IST [2578] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:49:54.185 IST [2578] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:50:03.184 IST [5529] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:50:03.184 IST [5529] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:50:25.184 IST [5079] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:50:25.184 IST [5079] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:50:34.132 IST [6570] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:50:34.132 IST [6570] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:50:53.089 IST [49114] LOG:  checkpoint starting: time
+2025-11-17 16:50:56.149 IST [6569] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:50:56.149 IST [6569] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:51:02.716 IST [49114] LOG:  checkpoint complete: wrote 96 buffers (0.6%); 0 WAL file(s) added, 0 removed, 0 recycled; write=9.624 s, sync=0.002 s, total=9.628 s; sync files=25, longest=0.001 s, average=0.001 s; distance=607 kB, estimate=18277 kB; lsn=0/5C7D320, redo lsn=0/5C4FD30
+2025-11-17 16:51:05.167 IST [8257] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:51:05.167 IST [8257] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:51:27.138 IST [6568] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:51:27.138 IST [6568] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:51:36.163 IST [10381] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:51:36.163 IST [10381] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:51:58.179 IST [9896] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:51:58.179 IST [9896] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:52:07.207 IST [12132] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:52:07.207 IST [12132] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:52:29.137 IST [6564] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:52:29.137 IST [6564] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:52:38.153 IST [9897] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:52:38.153 IST [9897] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:53:00.185 IST [13695] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:53:00.185 IST [13695] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:53:09.197 IST [13696] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:53:09.197 IST [13696] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:53:31.140 IST [11649] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:53:31.140 IST [11649] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:53:40.194 IST [14844] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:53:40.194 IST [14844] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:54:02.186 IST [16437] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:54:02.186 IST [16437] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:54:11.164 IST [16436] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:54:11.164 IST [16436] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:54:33.144 IST [8258] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:54:33.144 IST [8258] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:54:42.189 IST [18501] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:54:42.189 IST [18501] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:55:04.173 IST [19946] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:55:04.173 IST [19946] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:55:13.196 IST [19948] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:55:13.196 IST [19948] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:55:35.164 IST [16877] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:55:35.164 IST [16877] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:55:44.197 IST [22679] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:55:44.197 IST [22679] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:55:53.717 IST [49114] LOG:  checkpoint starting: time
+2025-11-17 16:56:02.635 IST [49114] LOG:  checkpoint complete: wrote 89 buffers (0.5%); 0 WAL file(s) added, 0 removed, 0 recycled; write=8.914 s, sync=0.002 s, total=8.919 s; sync files=25, longest=0.001 s, average=0.001 s; distance=616 kB, estimate=16511 kB; lsn=0/5CE9F50, redo lsn=0/5CE9EC0
+2025-11-17 16:56:06.165 IST [22681] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:56:06.165 IST [22681] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:56:15.164 IST [22678] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:56:15.164 IST [22678] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:56:37.140 IST [24637] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:56:37.140 IST [24637] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
+2025-11-17 16:56:46.194 IST [24230] ERROR:  relation "platform.communication_request" does not exist at character 49
+2025-11-17 16:56:46.194 IST [24230] STATEMENT:  
+	        SELECT COUNT(*) as total 
+	        FROM platform.communication_request 
+	        WHERE tenant_id = $1 AND deleted = false AND status_code = $2 AND requester_id = $3
+	      
