@@ -8,7 +8,7 @@ import psycopg2
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 import os
 from dotenv import load_dotenv
-from database import init_db, init_employee_db, DB_CONFIG, EMPLOYEE_DB_CONFIG
+from database import init_db, DB_CONFIG
 
 load_dotenv()
 
@@ -21,6 +21,7 @@ def create_database_if_not_exists(db_config, db_name):
             host=db_config['host'],
             port=db_config['port'],
             user=db_config['user'],
+            password=db_config['password'],
             database='postgres'  # Connect to default postgres database
         )
         conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
@@ -59,8 +60,7 @@ def initialize_database():
         create_database_if_not_exists(DB_CONFIG, DB_CONFIG['database'])
         
         # Create employee_db if it doesn't exist
-        print(f"\n2. Checking/Creating database '{EMPLOYEE_DB_CONFIG['database']}'...")
-        create_database_if_not_exists(EMPLOYEE_DB_CONFIG, EMPLOYEE_DB_CONFIG['database'])
+       
         
         # Initialize tables for leave_management_db
         print(f"\n3. Creating tables in '{DB_CONFIG['database']}'...")
@@ -68,9 +68,8 @@ def initialize_database():
         print(f"Tables created successfully in '{DB_CONFIG['database']}'!")
         
         # Initialize tables for employee_db
-        print(f"\n4. Creating tables in '{EMPLOYEE_DB_CONFIG['database']}'...")
-        init_employee_db()
-        print(f"Tables created successfully in '{EMPLOYEE_DB_CONFIG['database']}'!")
+       
+       
         
         print("\n" + "=" * 60)
         print("Database initialization completed successfully!")

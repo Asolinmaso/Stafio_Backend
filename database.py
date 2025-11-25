@@ -17,12 +17,16 @@ DB_CONFIG = {
     'host': os.getenv('DB_HOST', 'localhost'),
     'port': os.getenv('DB_PORT', '5432'),
     'user': os.getenv('DB_USER', 'postgres'),
-    'password': os.getenv('DB_PASSWORD', 'postgres'),
+    'password': os.getenv('DB_PASSWORD', 'Admin1910'),
     'database': os.getenv('DB_NAME', 'leave_management_db')
 }
 
 # Create database URL for SQLAlchemy
-DATABASE_URL = f"postgresql://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}"
+import urllib.parse
+
+encoded_password = urllib.parse.quote(DB_CONFIG['password'])
+
+DATABASE_URL = f"postgresql://{DB_CONFIG['user']}:{encoded_password}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}"
 
 # Create engine
 engine = create_engine(DATABASE_URL, echo=False)
@@ -51,6 +55,8 @@ class User(Base):
     last_name = Column(String(50))
     role = Column(Enum('employee', 'admin', name='user_role'), default='employee')
     created_at = Column(DateTime, default=datetime.utcnow)
+    phone = Column(String(20), unique=True)
+
     
     # Relationships
     leave_balances = relationship("LeaveBalance", back_populates="user", cascade="all, delete-orphan")
