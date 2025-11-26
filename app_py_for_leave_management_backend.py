@@ -7,6 +7,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import date, datetime
 from functools import wraps
 import os
+import sys
 import jwt
 import requests
 import secrets
@@ -152,135 +153,118 @@ def test_db_connection():
 def register_user():
     """Register a new user"""
     data = request.get_json()
+
     username = data.get('username')
     password = data.get('password')
     email = data.get('email')
+    phone = data.get('phone')            # ⭐ ADDED
     first_name = data.get('first_name')
     last_name = data.get('last_name')
     role = data.get('role', 'employee')
 
+    # Required field checks
     if not username or not password or not email:
         return jsonify({"message": "Username, password, and email are required."}), 400
+
+    if not phone:
+        return jsonify({"message": "Phone number is required."}), 400  # ⭐ ADDED
 
     hashed_password = generate_password_hash(password)
 
     db = None
     try:
         db = SessionLocal()
+
         new_user = User(
             username=username,
             password_hash=hashed_password,
             email=email,
+            phone=phone,                   # ⭐ ADDED
             first_name=first_name,
             last_name=last_name,
             role=role
         )
+
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
-        return jsonify({"message": "User registered successfully!", "user_id": new_user.id}), 201
-    except IntegrityError as err:
+
+        return jsonify({
+            "message": "User registered successfully!",
+            "user_id": new_user.id
+        }), 201
+
+    except IntegrityError:
         db.rollback()
-        return jsonify({"message": "Username or email already exists."}), 409
+        return jsonify({"message": "Username or email or Phone number already exists. "}), 409
+
     except Exception as e:
         if db:
             db.rollback()
         return jsonify({"message": f"An unexpected error occurred: {str(e)}"}), 500
+
     finally:
         if db:
             db.close()
 
 
+
 # ============================================================
 # OTP ENDPOINTS - CLEAN & SIMPLE
 # ============================================================
+@app.route('/forgot_send_otp', methods=['POST'])
+def forgot_send_otp():
+    data = request.get_json() or {}
+    email = data.get("email", "").strip()
 
-@app.route('/send_otp', methods=['POST'])
-def send_otp():
-    """Send OTP to user's email for registration"""
+    if not email:
+        return jsonify({"message": "Email is required."}), 400
+
+    db = SessionLocal()
     try:
-        data = request.get_json() or {}
-        email = data.get("email", "").strip()
-        username = data.get("username", "").strip()
+        # Check if email exists
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            return jsonify({"message": "Email not registered."}), 404
 
-        if not email or not username:
-            return jsonify({"message": "Email and username are required."}), 400
-
-        # Generate 6-digit OTP
+        # Generate OTP
         otp_code = "".join(secrets.choice("0123456789") for _ in range(6))
         expires_at = datetime.utcnow() + timedelta(minutes=10)
 
-        db = None
-        try:
-            db = SessionLocal()
+        new_otp = OTP(email=email, otp_code=otp_code, expires_at=expires_at)
+        db.add(new_otp)
+        db.commit()
 
-            # Check if user already exists
-            existing_user = (
-                db.query(User)
-                .filter((User.email == email) | (User.username == username))
-                .first()
-            )
-            if existing_user:
-                return jsonify({"message": "Email or username already registered."}), 409
+        # Send OTP Email
+        subject = "Your Password Reset OTP"
+        body = f"""
+        <h3>Your OTP Code is: <strong>{otp_code}</strong></h3>
+        <p>This OTP expires in 10 minutes.</p>
+        """
 
-            # Save OTP to database
-            new_otp = OTP(email=email, otp_code=otp_code, expires_at=expires_at)
-            db.add(new_otp)
-            db.commit()
+        send_email(email, subject, body)
 
-            # Send email
-            subject = "Your OTP Code for Registration"
-            body = f"""
-            <html>
-            <body>
-                <h2>Welcome to Stafio!</h2>
-                <p>Hi {username},</p>
-                <p>Your OTP code for registration is: <strong>{otp_code}</strong></p>
-                <p>This code will expire in 10 minutes.</p>
-                <p>If you didn't request this, please ignore this email.</p>
-                <br>
-                <p>Best regards,<br>Stafio Team</p>
-            </body>
-            </html>
-            """
+        return jsonify({"message": "OTP sent successfully."}), 200
 
-            if not send_email(email, subject, body):
-                return jsonify({"message": "Failed to send email. Please try again."}), 502
-
-            return jsonify({"message": "OTP sent successfully to your email."}), 200
-
-        except Exception as e:
-            if db:
-                db.rollback()
-            print(f"Error in send_otp: {str(e)}")
-            return jsonify({"message": "Internal server error while sending OTP."}), 500
-        finally:
-            if db:
-                db.close()
     except Exception as e:
-        print(f"Error parsing request in send_otp: {str(e)}")
-        return jsonify({"message": "Invalid request format."}), 400
+        db.rollback()
+        print("Error in forgot_send_otp:", str(e))
+        return jsonify({"message": "Internal server error."}), 500
 
-
-@app.route('/verify_otp_register', methods=['POST'])
-def verify_otp_register():
-    """Verify OTP and complete user registration"""
-    data = request.get_json(silent=True) or {}
+    finally:
+        db.close()
+@app.route('/forgot_verify_otp', methods=['POST'])
+def forgot_verify_otp():
+    data = request.get_json() or {}
 
     email = data.get("email")
-    username = data.get("username")
-    password = data.get("password")
     otp_code = data.get("otp")
-    role = data.get("role", "employee")
 
-    if not all([email, username, password, otp_code]):
-        return jsonify({"message": "All fields are required."}), 400
+    if not email or not otp_code:
+        return jsonify({"message": "Email and OTP required."}), 400
 
-    db = None
+    db = SessionLocal()
     try:
-        db = SessionLocal()
-
-        # Find the OTP record
         otp_record = (
             db.query(OTP)
             .filter(
@@ -295,51 +279,52 @@ def verify_otp_register():
         if not otp_record:
             return jsonify({"message": "Invalid or expired OTP."}), 400
 
-        # Check if user already exists
-        existing_user = (
-            db.query(User)
-            .filter((User.email == email) | (User.username == username))
-            .first()
-        )
-        if existing_user:
-            return jsonify({"message": "Email or username already registered."}), 409
-
-        # Create user
-        hashed_password = generate_password_hash(password)
-        new_user = User(
-            username=username,
-            password_hash=hashed_password,
-            email=email,
-            role=role,
-        )
-        db.add(new_user)
-
-        # Mark OTP as used
         otp_record.is_used = 1
-
         db.commit()
-        db.refresh(new_user)
 
-        return (
-            jsonify({"message": "User registered successfully!", "user_id": new_user.id}),
-            201,
-        )
+        return jsonify({"message": "OTP verified successfully."}), 200
 
-    except IntegrityError:
-        if db:
-            db.rollback()
-        return jsonify({"message": "Username or email already exists."}), 409
     except Exception as e:
-        if db:
-            db.rollback()
-        print(f"Error in verify_otp_register: {str(e)}")
-        return (
-            jsonify({"message": "Internal server error while verifying OTP."}),
-            500,
-        )
+        db.rollback()
+        print("Error in forgot_verify_otp:", str(e))
+        return jsonify({"message": "Internal server error."}), 500
+
     finally:
-        if db:
-            db.close()
+        db.close()
+
+
+
+
+@app.route('/reset_password', methods=['POST'])
+def reset_password():
+    data = request.get_json() or {}
+    email = data.get("email")
+    new_password = data.get("password")
+
+    if not email or not new_password:
+        return jsonify({"message": "Email and password required."}), 400
+
+    hashed = generate_password_hash(new_password)
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+
+        if not user:
+            return jsonify({"message": "User not found."}), 404
+
+        user.password_hash = hashed
+        db.commit()
+
+        return jsonify({"message": "Password reset successful."}), 200
+
+    except Exception as e:
+        db.rollback()
+        print("Error in reset_password:", str(e))
+        return jsonify({"message": "Internal server error."}), 500
+
+    finally:
+        db.close()
 
 
 #this is the code of getting the user name for backend code 
@@ -369,11 +354,112 @@ def get_user_details(user_id):
             db.close()
 
 
+
+@app.route("/admin_google_register", methods=["POST"])
+def admin_google_register():
+    data = request.get_json()
+    email = data.get("email")
+    username = data.get("username")
+    role = data.get("role", "admin")
+
+    if not email:
+        return jsonify({"message": "Email is required"}), 400
+
+    db = SessionLocal()
+
+    try:
+        # Check if user exists
+        user = db.query(User).filter(User.email == email).first()
+
+        if user:
+            return jsonify({
+                "exists": True,
+                "message": "Email already registered. Please login instead."
+            }), 200
+
+        # Create a new admin user (Google user has no password)
+        new_user = User(
+            username=username,
+            email=email,
+            password_hash="",   # empty, since Google login
+            role=role
+        )
+
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+
+        return jsonify({
+            "message": "Google Registration Successful",
+            "user_id": new_user.id,
+            "username": username,
+            "email": email,
+            "role": role
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({"message": "Server error", "error": str(e)}), 500
+
+    finally:
+        db.close()
+
+
+@app.route("/employee_google_register", methods=["POST"])
+def employee_google_register():
+    data = request.get_json()
+    email = data.get("email")
+    username = data.get("username")
+    role = data.get("role", "employee")
+
+    if not email:
+        return jsonify({"message": "Email is required"}), 400
+
+    db = SessionLocal()
+
+    try:
+        # Check if employee already exists
+        user = db.query(User).filter(User.email == email).first()
+
+        if user:
+            return jsonify({
+                "exists": True,
+                "message": "Email already registered. Please login instead."
+            }), 200
+
+        # Create a new employee (Google user → no password)
+        new_user = User(
+            username=username,
+            email=email,
+            password_hash="",  # empty for Google signup
+            role=role
+        )
+
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+
+        return jsonify({
+            "message": "Google Registration Successful",
+            "user_id": new_user.id,
+            "username": username,
+            "email": email,
+            "role": role
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({"message": "Server error", "error": str(e)}), 500
+
+    finally:
+        db.close()
+
+
 @app.route('/google_login', methods=['POST'])
 def google_login():
     """Handle Google OAuth login"""
     data = request.get_json()
-    id_token = data.get("id_token")
+    id_token = data.get("id_token")  # Google ID Token from frontend
     requested_role = data.get("role", "employee")
 
     if not id_token:
@@ -396,70 +482,61 @@ def google_login():
         return jsonify({"message": f"Error verifying token: {str(ex)}"}), 500
 
     email = token_info.get("email")
-    email_verified = token_info.get("email_verified") in ("true", True, "True")
     given_name = token_info.get("given_name", "")
     family_name = token_info.get("family_name", "")
-    google_sub = token_info.get("sub")
+    email_verified = str(token_info.get("email_verified")).lower() == "true"
 
     if not email or not email_verified:
         return jsonify({"message": "Google account email not verified"}), 400
 
-    db = None
-    try:
-        db = SessionLocal()
+    db = SessionLocal()
 
-        # Check existing user
+    try:
+        # Check if user exists
         user = db.query(User).filter(User.email == email).first()
 
         if user:
-            return jsonify(
-                user_id=user.id,
-                username=user.username,
-                role=user.role
-            ), 200
+            return jsonify({
+                "user_id": user.id,
+                "username": user.username,
+                "role": user.role
+            }), 200
 
-        # Create new user
+        # Create new user (Google user → no password)
         username_base = email.split("@")[0]
         username = username_base
 
+        # Ensure username uniqueness
         i = 1
-        while True:
-            existing_user = db.query(User).filter(User.username == username).first()
-            if existing_user:
-                username = f"{username_base}{i}"
-                i += 1
-            else:
-                break
-
-        random_password = secrets.token_urlsafe(16)
-        password_hash = generate_password_hash(random_password)
+        while db.query(User).filter(User.username == username).first():
+            username = f"{username_base}{i}"
+            i += 1
 
         new_user = User(
             username=username,
-            password_hash=password_hash,
             email=email,
+            password_hash="",  # Google users do not have password
             first_name=given_name,
             last_name=family_name,
             role=requested_role
         )
+
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
 
-        return jsonify(
-            user_id=new_user.id,
-            username=new_user.username,
-            role=new_user.role
-        ), 201
+        return jsonify({
+            "user_id": new_user.id,
+            "username": new_user.username,
+            "role": new_user.role
+        }), 201
 
     except Exception as e:
-        if db:
-            db.rollback()
+        db.rollback()
         return jsonify({"message": f"Server error: {str(e)}"}), 500
 
     finally:
-        if db:
-            db.close()
+        db.close()
 
 
 @app.route('/employee_login', methods=['POST'])
@@ -490,6 +567,197 @@ def employee_login():
     finally:
         if db:
             db.close()
+
+
+
+@app.route('/admin_google_login', methods=['POST'])
+def admin_google_login():
+    """Handle Google OAuth admin login"""
+    data = request.get_json()
+    id_token = data.get("id_token")
+    requested_role = data.get("role", "admin")
+
+    if not id_token:
+        return jsonify({"message": "Missing id_token"}), 400
+
+    # Verify Google Token
+    try:
+        r = requests.get(
+            "https://oauth2.googleapis.com/tokeninfo",
+            params={"id_token": id_token},
+            timeout=10
+        )
+
+        if r.status_code != 200:
+            return jsonify({"message": "Invalid Google token"}), 401
+
+        token_info = r.json()
+
+    except Exception as ex:
+        return jsonify({"message": f"Error verifying token: {str(ex)}"}), 500
+
+    email = token_info.get("email")
+    given_name = token_info.get("given_name", "")
+    family_name = token_info.get("family_name", "")
+    email_verified = str(token_info.get("email_verified")).lower() == "true"
+
+    if not email or not email_verified:
+        return jsonify({"message": "Google account email not verified"}), 400
+
+    db = SessionLocal()
+
+    try:
+        # Check if admin exists
+        user = db.query(User).filter(User.email == email).first()
+
+        if user:
+            return jsonify({
+                "user_id": user.id,
+                "username": user.username,
+                "role": user.role,
+                "email":user.email,
+            }), 200
+        
+        if not user:
+         return {
+            "status": "error",
+            "message": "This email is not present in the database"
+        }
+
+        # Create new admin
+        username_base = email.split("@")[0]
+        i = 1
+        username = username_base
+
+        while db.query(User).filter(User.username == username).first():
+            username = f"{username_base}{i}"
+            i += 1
+
+        new_user = User(
+            username=username,
+            email=email,
+            password_hash="",
+            first_name=given_name,
+            last_name=family_name,
+            role=requested_role
+        )
+
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+
+        return jsonify({
+            "user_id": new_user.id,
+            "username": new_user.username,
+            "role": new_user.role,
+            "email": new_user.email
+        }), 201
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({"message": f"Server error: {str(e)}"}), 500
+
+    finally:
+        db.close()
+
+
+
+@app.route('/employee_google_login', methods=['POST'])
+def employee_google_login():
+    """Handle Google OAuth employee login"""
+    data = request.get_json()
+    id_token = data.get("id_token")
+
+    if not id_token:
+        return jsonify({"message": "Missing id_token"}), 400
+
+    # Verify Google Token
+    try:
+        r = requests.get(
+            "https://oauth2.googleapis.com/tokeninfo",
+            params={"id_token": id_token},
+            timeout=10
+        )
+
+        if r.status_code != 200:
+            return jsonify({"message": "Invalid Google token"}), 401
+
+        token_info = r.json()
+
+    except Exception as ex:
+        return jsonify({"message": f"Error verifying token: {str(ex)}"}), 500
+
+    email = token_info.get("email")
+    given_name = token_info.get("given_name", "")
+    family_name = token_info.get("family_name", "")
+    email_verified = str(token_info.get("email_verified")).lower() == "true"
+
+    if not email or not email_verified:
+        return jsonify({"message": "Google account email not verified"}), 400
+
+    db = SessionLocal()
+
+    try:
+        # ⏳ Check if employee exists
+        user = db.query(User).filter(
+            User.email == email,
+            User.role == "employee"
+        ).first()
+
+        if user:
+            return jsonify({
+                "user_id": user.id,
+                "username": user.username,
+                "role": user.role,
+                "email": user.email,
+            }), 200
+        if not user:
+          return {
+            "status": "error",
+            "message": "This email is not present in the database"
+        }
+
+
+        # 🆕 Create new employee
+        username_base = email.split("@")[0]
+        username = username_base
+        i = 1
+
+        # Ensure username is unique
+        while db.query(User).filter(User.username == username).first():
+            username = f"{username_base}{i}"
+            i += 1
+
+        new_user = User(
+            username=username,
+            email=email,
+            password_hash="",       # Empty because Google login does not use passwords
+            first_name=given_name,
+            last_name=family_name,
+            role="employee"
+        )
+
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+
+        return jsonify({
+            "user_id": new_user.id,
+            "username": new_user.username,
+            "role": new_user.role,
+            "email": new_user.email
+        }), 201
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({"message": f"Server error: {str(e)}"}), 500
+
+    finally:
+        db.close()
+
+
+
+
 
 @app.route('/admin_login', methods=['POST'])
 def admin_login():
@@ -1041,6 +1309,11 @@ def get_employee_profile_data(user_id):
     finally:
         if db:
             db.close()
+
+
+@app.route('/pyver')
+def pyver():
+    return sys.version
 
 
 # Run the Flask application
