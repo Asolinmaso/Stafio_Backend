@@ -1,8 +1,7 @@
 services:
   - type: web
     name: staffio-backend
-    env: python
-    pythonVersion: "3.11"
+    runtime: python-3.11
     plan: free
     region: oregon
     buildCommand: pip install -r requirements.txt
