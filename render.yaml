@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: staffio-backend
+    env: python
+    plan: free
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app_py_for_leave_management_backend.py
+    envVars:
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        value: 5432
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: PORT
+        value: 10000
+    healthCheckPath: /
+    autoDeploy: true
