@@ -1,7 +1,7 @@
 services:
   - type: web
     name: staffio-backend
-    runtime: python-3.11
+    env: python
     plan: free
     region: oregon
     buildCommand: pip install -r requirements.txt
@@ -17,10 +17,5 @@ services:
         sync: false
       - key: DB_NAME
         sync: false
-      - key: PORT
-        fromService:
-          type: web
-          name: staffio-backend
-          property: port
     healthCheckPath: /
     autoDeploy: true
