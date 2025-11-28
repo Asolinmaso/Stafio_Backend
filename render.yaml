@@ -5,7 +5,7 @@ services:
     plan: free
     region: oregon
     buildCommand: pip install -r requirements.txt
-    startCommand: python app_py_for_leave_management_backend.py
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120 app_py_for_leave_management_backend:app
     envVars:
       - key: DB_HOST
         sync: false
@@ -18,6 +18,9 @@ services:
       - key: DB_NAME
         sync: false
       - key: PORT
-        value: 10000
+        fromService:
+          type: web
+          name: staffio-backend
+          property: port
     healthCheckPath: /
     autoDeploy: true

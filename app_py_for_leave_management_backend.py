@@ -1340,6 +1340,7 @@ if __name__ == '__main__':
         print(f"Warning: Could not run migrations: {e}")
         print("You may need to run migrations manually: python run_migrations.py")
     
-    print("\nStarting Flask server on http://localhost:5001")
+    port = int(os.environ.get('PORT', 5001))
+    print(f"\nStarting Flask server on http://0.0.0.0:{port}")
     print("CORS is enabled for all endpoints\n")
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    app.run(debug=False, host='0.0.0.0', port=port)
