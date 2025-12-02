@@ -1,0 +1,4 @@
+Generic single-database configuration with an async dbapi.
+
+This is a generic single-database configuration for Alembic migrations.
+
