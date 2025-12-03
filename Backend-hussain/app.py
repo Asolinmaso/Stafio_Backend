@@ -153,22 +153,28 @@ if __name__ == '__main__':
     print("="*60)
     
     # Initialize database
-    try:
-        init_db()
-        print("✓ Database tables initialized successfully")
-    except Exception as e:
-        print(f"✗ Database initialization failed: {e}")
-        print("  Make sure PostgreSQL is running and configured correctly")
-    
-    # Run migrations if available
     # try:
-    #     from run_migrations import run_migrations
-    #     run_migrations()
-    #     print("✓ Database migrations completed")
-    # except ImportError:
-    #     print("⚠ No migrations file found (run_migrations.py)")
+    #     init_db()
+    #     print("✓ Database tables initialized successfully")
     # except Exception as e:
-    #     print(f"⚠ Migration warning: {e}")
+    #     print(f"✗ Database initialization failed: {e}")
+    #     print("  Make sure PostgreSQL is running and configured correctly")
+    
+
+    # print("\n" + "="*60)
+    # print("Stafio Backend Server Starting")
+    # print("="*60)
+    
+    # Database status check (don't create tables, use Alembic instead)
+    try:
+        from sqlalchemy import text
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        db.close()
+        print("✓ Database connection successful")
+    except Exception as e:
+        print(f"✗ Database connection failed: {e}")
+        print("  Run 'alembic upgrade head' to initialize database")
     
     print("\n" + "="*60)
     print("Server Configuration:")

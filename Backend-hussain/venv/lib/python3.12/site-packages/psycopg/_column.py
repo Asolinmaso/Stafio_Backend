@@ -6,8 +6,9 @@ The Column object in Cursor.description
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any
 from operator import attrgetter
+from collections.abc import Sequence
 
 if TYPE_CHECKING:
     from ._cursor_base import BaseCursor

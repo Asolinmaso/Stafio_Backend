@@ -13,6 +13,7 @@ from . import errors as e
 from . import pq, sql
 from .abc import ConnectionType, Params, PQGen, Query
 from .rows import Row
+from ._compat import Interpolation, Template
 from .generators import execute
 from ._cursor_base import BaseCursor
 
@@ -31,7 +32,9 @@ INTRANS = pq.TransactionStatus.INTRANS
 class ServerCursorMixin(BaseCursor[ConnectionType, Row]):
     """Mixin to add ServerCursor behaviour and implementation a BaseCursor."""
 
-    __slots__ = "_name _scrollable _withhold _described itersize _format".split()
+    __slots__ = """_name _scrollable _withhold _described itersize _format
+        _iter_rows _page_pos
+    """.split()
 
     def __init__(self, name: str, scrollable: bool | None, withhold: bool):
         self._name = name
@@ -40,6 +43,10 @@ class ServerCursorMixin(BaseCursor[ConnectionType, Row]):
         self._described = False
         self.itersize: int = DEFAULT_ITERSIZE
         self._format = TEXT
+
+        # Hold the state during iteration: a fetched page and position within it
+        self._iter_rows: list[Row] | None = None
+        self._page_pos = 0
 
     def __del__(self, __warn: Any = warn) -> None:
         if self.closed:
@@ -104,6 +111,7 @@ class ServerCursorMixin(BaseCursor[ConnectionType, Row]):
             yield from self._close_gen()
             self._described = False
 
+        self._iter_rows = None
         yield from self._start_query(query)
         pgq = self._convert_query(query, params)
         self._execute_send(pgq, force_extended=True)
@@ -184,19 +192,26 @@ class ServerCursorMixin(BaseCursor[ConnectionType, Row]):
         )
         yield from self._conn._exec_command(query)
 
-    def _make_declare_statement(self, query: Query) -> sql.Composed:
-        if isinstance(query, bytes):
-            query = query.decode(self._encoding)
-        if not isinstance(query, sql.Composable):
-            query = sql.SQL(query)
-
+    def _make_declare_statement(self, query: Query) -> Query:
         parts = [sql.SQL("DECLARE"), sql.Identifier(self._name)]
         if self._scrollable is not None:
             parts.append(sql.SQL("SCROLL" if self._scrollable else "NO SCROLL"))
         parts.append(sql.SQL("CURSOR"))
         if self._withhold:
             parts.append(sql.SQL("WITH HOLD"))
-        parts.append(sql.SQL("FOR"))
-        parts.append(query)
+        parts.append(sql.SQL("FOR "))
+        declare = sql.SQL(" ").join(parts)
 
-        return sql.SQL(" ").join(parts)
+        if isinstance(query, Template):
+            # t"{declare:q}{query:q}" but compatible with Python < 3.14
+            return Template(
+                Interpolation(declare, "declare", None, "q"),
+                Interpolation(query, "query", None, "q"),
+            )
+
+        if isinstance(query, bytes):
+            query = query.decode(self._encoding)
+        if not isinstance(query, sql.Composable):
+            query = sql.SQL(query)
+
+        return declare + query

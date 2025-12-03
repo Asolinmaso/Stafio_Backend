@@ -9,13 +9,14 @@ information to the adapters if needed.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterator, Sequence, overload
+from typing import TYPE_CHECKING, Any, TypeAlias, overload
+from collections.abc import Iterator, Sequence
 
 from . import errors as e
 from . import sql
-from .abc import AdaptContext, Query
+from .abc import AdaptContext, QueryNoTemplate
 from .rows import dict_row
-from ._compat import TypeAlias, TypeVar
+from ._compat import TypeVar
 from ._typemod import TypeModifier
 from ._encodings import conn_encoding
 
@@ -25,7 +26,7 @@ if TYPE_CHECKING:
     from .connection_async import AsyncConnection
 
 T = TypeVar("T", bound="TypeInfo")
-RegistryKey: TypeAlias = "str | int | tuple[type, int]"
+RegistryKey: TypeAlias = str | int | tuple[type, int]
 
 
 class TypeInfo:
@@ -156,7 +157,7 @@ class TypeInfo:
             register_array(self, context)
 
     @classmethod
-    def _get_info_query(cls, conn: BaseConnection[Any]) -> Query:
+    def _get_info_query(cls, conn: BaseConnection[Any]) -> QueryNoTemplate:
         return sql.SQL(
             """\
 SELECT

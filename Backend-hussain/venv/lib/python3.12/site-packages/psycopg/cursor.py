@@ -10,15 +10,16 @@ Psycopg Cursor object.
 from __future__ import annotations
 
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, overload
+from typing import TYPE_CHECKING, Any, overload
 from contextlib import contextmanager
+from collections.abc import Iterable, Iterator
 
 from . import errors as e
 from . import pq
-from .abc import Params, Query
+from .abc import Params, Query, QueryNoTemplate
 from .copy import Copy, Writer
 from .rows import Row, RowFactory, RowMaker
-from ._compat import Self
+from ._compat import Self, Template
 from ._pipeline import Pipeline
 from ._cursor_base import BaseCursor
 
@@ -76,6 +77,25 @@ class Cursor(BaseCursor["Connection[Any]", Row]):
 
     def _make_row_maker(self) -> RowMaker[Row]:
         return self._row_factory(self)
+
+    @overload
+    def execute(
+        self,
+        query: QueryNoTemplate,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self: ...
+
+    @overload
+    def execute(
+        self,
+        query: Template,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self: ...
 
     def execute(
         self,
@@ -175,11 +195,52 @@ class Cursor(BaseCursor["Connection[Any]", Row]):
                     except Exception:
                         pass
 
+    def results(self) -> Iterator[Self]:
+        """
+        Iterate across multiple record sets received by the cursor.
+
+        Multiple record sets are received after using `executemany()` with
+        `!returning=True` or using `execute()` with more than one query in the
+        command.
+        """
+        if self.pgresult:
+            while True:
+                yield self
+
+                if not self.nextset():
+                    break
+
+    def set_result(self, index: int) -> Self:
+        """
+        Move to a specific result set.
+
+        :arg index: index of the result to go to
+        :type index: `!int`
+
+        More than one result will be available after executing calling
+        `executemany()` or `execute()` with more than one query.
+
+        `!index` is 0-based and supports negative values, counting from the end,
+        the same way you can index items in a list.
+
+        The function returns self, so that the result may be followed by a
+        fetch operation. See `results()` for details.
+        """
+        if not -len(self._results) <= index < len(self._results):
+            raise IndexError(
+                f"index {index} out of range: {len(self._results)} result(s) available"
+            )
+        if index < 0:
+            index = len(self._results) + index
+
+        self._select_current_result(index)
+        return self
+
     def fetchone(self) -> Row | None:
         """
-        Return the next record from the current recordset.
+        Return the next record from the current result set.
 
-        Return `!None` the recordset is finished.
+        Return `!None` the result set is finished.
 
         :rtype: Row | None, with Row defined by `row_factory`
         """
@@ -193,7 +254,7 @@ class Cursor(BaseCursor["Connection[Any]", Row]):
 
     def fetchmany(self, size: int = 0) -> list[Row]:
         """
-        Return the next `!size` records from the current recordset.
+        Return the next `!size` records from the current result set.
 
         `!size` default to `!self.arraysize` if not specified.
 
@@ -212,7 +273,7 @@ class Cursor(BaseCursor["Connection[Any]", Row]):
 
     def fetchall(self) -> list[Row]:
         """
-        Return all the remaining records from the current recordset.
+        Return all the remaining records from the current result set.
 
         :rtype: Sequence[Row], with Row defined by `row_factory`
         """
@@ -222,14 +283,17 @@ class Cursor(BaseCursor["Connection[Any]", Row]):
         self._pos = res.ntuples
         return records
 
-    def __iter__(self) -> Iterator[Row]:
+    def __iter__(self) -> Self:
+        return self
+
+    def __next__(self) -> Row:
         self._fetch_pipeline()
         res = self._check_result_for_fetch()
-
-        while self._pos < res.ntuples:
-            row = self._tx.load_row(self._pos, self._make_row)
+        if self._pos < res.ntuples:
+            record = self._tx.load_row(self._pos, self._make_row)
             self._pos += 1
-            yield row
+            return record
+        raise StopIteration("no more records to return")
 
     def scroll(self, value: int, mode: str = "relative") -> None:
         """

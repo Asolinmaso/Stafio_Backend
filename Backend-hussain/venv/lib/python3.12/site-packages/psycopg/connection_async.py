@@ -10,17 +10,20 @@ import logging
 import warnings
 from time import monotonic
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, AsyncGenerator, AsyncIterator, cast, overload
+from typing import TYPE_CHECKING, Any, cast, overload
 from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator, AsyncIterator
 
 from . import errors as e
 from . import pq, waiting
 from .abc import RV, AdaptContext, ConnDict, ConnParam, Params, PQGen, Query
+from .abc import QueryNoTemplate
 from ._tpc import Xid
 from .rows import AsyncRowFactory, Row, args_row, tuple_row
 from .adapt import AdaptersMap
 from ._enums import IsolationLevel
-from ._compat import Self
+from ._compat import Self, Template
+from ._acompat import ALock
 from .conninfo import conninfo_attempts_async, conninfo_to_dict, make_conninfo
 from .conninfo import timeout_from_conninfo
 from .generators import notifies
@@ -35,11 +38,6 @@ from ._server_cursor_async import AsyncServerCursor
 if True:  # ASYNC
     import sys
     import asyncio
-    from asyncio import Lock
-
-    from ._compat import to_thread
-else:
-    from threading import Lock
 
 if TYPE_CHECKING:
     from .pq.abc import PGconn
@@ -80,7 +78,7 @@ class AsyncConnection(BaseConnection[Row]):
     ):
         super().__init__(pgconn)
         self.row_factory = row_factory
-        self.lock = Lock()
+        self.lock = ALock()
         self.cursor_factory = AsyncCursor
         self.server_cursor_factory = AsyncServerCursor
 
@@ -153,12 +151,12 @@ class AsyncConnection(BaseConnection[Row]):
         ):
             warnings.warn(
                 "the connection was obtained using the GSSAPI relying on the"
-                " 'gssencmode=prefer' libpq default. In a future psycopg[binary]"
-                " version this default will be changed to 'disable'."
+                " 'gssencmode=prefer' libpq default. The value for this default might"
+                " be 'disable' instead, in certain psycopg[binary] implementations."
                 " If you wish to interact with the GSSAPI reliably please set the"
                 " 'gssencmode' parameter in the connection string or the"
                 " 'PGGSSENCMODE' environment variable to 'prefer' or 'require'",
-                DeprecationWarning,
+                RuntimeWarning,
             )
 
         rv._autocommit = bool(autocommit)
@@ -206,6 +204,12 @@ class AsyncConnection(BaseConnection[Row]):
         """Close the database connection."""
         if self.closed:
             return
+
+        pool = getattr(self, "_pool", None)
+        if pool and getattr(pool, "close_returns", False):
+            await pool.putconn(self)
+            return
+
         self._closed = True
 
         # TODO: maybe send a cancel on close, if the connection is ACTIVE?
@@ -275,6 +279,25 @@ class AsyncConnection(BaseConnection[Row]):
 
         return cur
 
+    @overload
+    async def execute(
+        self,
+        query: QueryNoTemplate,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> AsyncCursor[Row]: ...
+
+    @overload
+    async def execute(
+        self,
+        query: Template,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> AsyncCursor[Row]: ...
+
     async def execute(
         self,
         query: Query,
@@ -289,7 +312,15 @@ class AsyncConnection(BaseConnection[Row]):
             if binary:
                 cur.format = BINARY
 
-            return await cur.execute(query, params, prepare=prepare)
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query"
+                        " doesn't support parameters"
+                    )
+                return await cur.execute(query, prepare=prepare)
+            else:
+                return await cur.execute(query, params, prepare=prepare)
 
         except e._NO_TRACEBACK as ex:
             raise ex.with_traceback(None)
@@ -329,7 +360,7 @@ class AsyncConnection(BaseConnection[Row]):
             )
         else:
             if True:  # ASYNC
-                await to_thread(self.cancel)
+                await asyncio.to_thread(self.cancel)
             else:
                 self.cancel()
 
@@ -362,7 +393,7 @@ class AsyncConnection(BaseConnection[Row]):
 
     async def notifies(
         self, *, timeout: float | None = None, stop_after: int | None = None
-    ) -> AsyncGenerator[Notify, None]:
+    ) -> AsyncGenerator[Notify]:
         """
         Yield `Notify` objects as soon as they are received from the database.
 

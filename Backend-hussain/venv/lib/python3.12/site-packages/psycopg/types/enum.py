@@ -5,14 +5,16 @@ Adapters for the enum type.
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Generic, Mapping, Sequence, cast
+from typing import TYPE_CHECKING, Any, Generic, TypeAlias, cast
+from functools import cache
+from collections.abc import Mapping, Sequence
 
 from .. import errors as e
 from .. import postgres, sql
 from ..pq import Format
-from ..abc import AdaptContext, Query
+from ..abc import AdaptContext, QueryNoTemplate
 from ..adapt import Buffer, Dumper, Loader
-from .._compat import TypeAlias, TypeVar, cache
+from .._compat import TypeVar
 from .._typeinfo import TypeInfo
 from .._encodings import conn_encoding
 
@@ -21,13 +23,13 @@ if TYPE_CHECKING:
 
 E = TypeVar("E", bound=Enum)
 
-EnumDumpMap: TypeAlias = "dict[E, bytes]"
-EnumLoadMap: TypeAlias = "dict[bytes, E]"
-EnumMapping: TypeAlias = "Mapping[E, str] | Sequence[tuple[E, str]] | None"
+EnumDumpMap: TypeAlias = dict[E, bytes]
+EnumLoadMap: TypeAlias = dict[bytes, E]
+EnumMapping: TypeAlias = Mapping[E, str] | Sequence[tuple[E, str]] | None
 
 # Hashable versions
-_HEnumDumpMap: TypeAlias = "tuple[tuple[E, bytes], ...]"
-_HEnumLoadMap: TypeAlias = "tuple[tuple[bytes, E], ...]"
+_HEnumDumpMap: TypeAlias = tuple[tuple[E, bytes], ...]
+_HEnumLoadMap: TypeAlias = tuple[tuple[bytes, E], ...]
 
 TEXT = Format.TEXT
 BINARY = Format.BINARY
@@ -49,7 +51,7 @@ class EnumInfo(TypeInfo):
         self.enum: type[Enum] | None = None
 
     @classmethod
-    def _get_info_query(cls, conn: BaseConnection[Any]) -> Query:
+    def _get_info_query(cls, conn: BaseConnection[Any]) -> QueryNoTemplate:
         return sql.SQL(
             """\
 SELECT name, oid, array_oid, array_agg(label) AS labels
@@ -141,7 +143,7 @@ def register_enum(
         raise TypeError("no info passed. Is the requested enum available?")
 
     if enum is None:
-        enum = cast("type[E]", _make_enum(info.name, tuple(info.labels)))
+        enum = cast(type[E], _make_enum(info.name, tuple(info.labels)))
 
     info.enum = enum
     adapters = context.adapters if context else postgres.adapters

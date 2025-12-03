@@ -18,31 +18,43 @@ class Capabilities:
     def __init__(self) -> None:
         self._cache: dict[str, str] = {}
 
+    def has_full_protocol_version(self, check: bool = False) -> bool:
+        """Check if the `PGconn.full_protocol_version()` method is implemented.
+
+        If the method is implemented, then `ConnectionInfo.full_protocol_version`
+        will return a meaningful value.
+
+        The feature requires libpq 18.0 and greater.
+        """
+        return self._has_feature(
+            "pq.PGconn.full_protocol_version()", 180000, check=check
+        )
+
     def has_encrypt_password(self, check: bool = False) -> bool:
         """Check if the `PGconn.encrypt_password()` method is implemented.
 
-        The feature requires libpq 10.0 and greater.
+        The feature requires libpq 10.0 or greater.
         """
         return self._has_feature("pq.PGconn.encrypt_password()", 100000, check=check)
 
     def has_hostaddr(self, check: bool = False) -> bool:
         """Check if the `ConnectionInfo.hostaddr` attribute is implemented.
 
-        The feature requires libpq 12.0 and greater.
+        The feature requires libpq 12.0 or greater.
         """
         return self._has_feature("Connection.info.hostaddr", 120000, check=check)
 
     def has_pipeline(self, check: bool = False) -> bool:
         """Check if the :ref:`pipeline mode <pipeline-mode>` is supported.
 
-        The feature requires libpq 14.0 and greater.
+        The feature requires libpq 14.0 or greater.
         """
         return self._has_feature("Connection.pipeline()", 140000, check=check)
 
     def has_set_trace_flags(self, check: bool = False) -> bool:
         """Check if the `pq.PGconn.set_trace_flags()` method is implemented.
 
-        The feature requires libpq 14.0 and greater.
+        The feature requires libpq 14.0 or greater.
         """
         return self._has_feature("PGconn.set_trace_flags()", 140000, check=check)
 
@@ -56,7 +68,7 @@ class Capabilities:
     def has_cancel_safe(self, check: bool = False) -> bool:
         """Check if the `Connection.cancel_safe()` method is implemented.
 
-        The feature requires libpq 17.0 and greater.
+        The feature requires libpq 17.0 or greater.
         """
         return self._has_feature("Connection.cancel_safe()", 170000, check=check)
 
@@ -64,7 +76,7 @@ class Capabilities:
         """Check if `Cursor.stream()` can handle a `size` parameter value
         greater than 1 to retrieve results by chunks.
 
-        The feature requires libpq 17.0 and greater.
+        The feature requires libpq 17.0 or greater.
         """
         return self._has_feature(
             "Cursor.stream() with 'size' parameter greater than 1", 170000, check=check
@@ -73,7 +85,7 @@ class Capabilities:
     def has_send_close_prepared(self, check: bool = False) -> bool:
         """Check if the `pq.PGconn.send_closed_prepared()` method is implemented.
 
-        The feature requires libpq 17.0 and greater.
+        The feature requires libpq 17.0 or greater.
         """
         return self._has_feature("PGconn.send_close_prepared()", 170000, check=check)
 

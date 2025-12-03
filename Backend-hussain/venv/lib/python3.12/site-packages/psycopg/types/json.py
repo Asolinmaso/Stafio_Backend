@@ -8,20 +8,20 @@ from __future__ import annotations
 
 import json
 import logging
-from types import CodeType  # noqa[F401]
-from typing import Any, Callable
+from types import CodeType
+from typing import Any, TypeAlias
 from threading import Lock
+from collections.abc import Callable
 
 from .. import _oids, abc
 from .. import errors as e
 from ..pq import Format
 from ..adapt import AdaptersMap, Buffer, Dumper, Loader, PyFormat
 from ..errors import DataError
-from .._compat import TypeAlias
 
-JsonDumpsFunction: TypeAlias = Callable[[Any], "str | bytes"]
-JsonLoadsFunction: TypeAlias = Callable[["str | bytes"], Any]
-_AdapterKey: TypeAlias = "tuple[type, Callable[..., Any] | CodeType]"
+JsonDumpsFunction: TypeAlias = Callable[[Any], str | bytes]
+JsonLoadsFunction: TypeAlias = Callable[[str | bytes], Any]
+_AdapterKey: TypeAlias = tuple[type, Callable[..., Any] | CodeType]
 
 logger = logging.getLogger("psycopg")
 
@@ -187,7 +187,7 @@ class _JsonWrapper:
         self.dumps = dumps
 
     def __repr__(self) -> str:
-        if len((sobj := repr(self.obj))) > 40:
+        if len(sobj := repr(self.obj)) > 40:
             sobj = f"{sobj[:35]} ... ({len(sobj)} chars)"
         return f"{self.__class__.__name__}({sobj})"
 

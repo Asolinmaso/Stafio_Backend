@@ -224,7 +224,9 @@ def get_leave_requests():
     
     db = SessionLocal()
     try:
-        query = db.query(LeaveRequest).join(User)
+        # query = db.query(LeaveRequest).join(User)
+        # query = db.query(LeaveRequest).join(User, LeaveRequest.user_id == User.id)
+        query = db.query(LeaveRequest)
         
         if status_filter and status_filter != 'all':
             query = query.filter(LeaveRequest.status == status_filter)
