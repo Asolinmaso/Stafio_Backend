@@ -228,7 +228,7 @@ def forgot_send_otp():
             return jsonify({"message": "Email not registered."}), 404
 
         # Generate OTP
-        otp_code = "".join(secrets.choice("0123456789") for _ in range(6))
+        otp_code = "".join(secrets.choice("0123456789") for _ in range(4))
         expires_at = datetime.utcnow() + timedelta(minutes=10)
 
         new_otp = OTP(email=email, otp_code=otp_code, expires_at=expires_at)
@@ -253,6 +253,8 @@ def forgot_send_otp():
 
     finally:
         db.close()
+
+
 @app.route('/forgot_verify_otp', methods=['POST'])
 def forgot_verify_otp():
     data = request.get_json() or {}
@@ -1148,6 +1150,300 @@ def get_admin_attendance_data():
         }
     ]
     return jsonify(attendance_data)
+
+
+@app.route('/api/leaveapproval', methods=['GET'])
+def get_admin_leave_approval_data():
+    leave_approval_data = [
+        {
+      "name": "Aarav Bijeesh",
+      "id": "100849",
+      "type": "Sick Leave",
+      "from": "11-07-2025",
+       "to": "12-07-2025",
+      "days": "1 Day(s)",
+       "session": "Full Day",
+      "dates": "11-07-2025/Full Day",
+      "requestDate": "11-07-2025",
+       "notify": "HR Head",
+       "document": "medical_report.pdf",
+       "reason": "Medical emergency",
+      "status": "Pending",
+        },
+        {
+      "name": "Aishwarya Shayam",
+      "id": "100849",
+      "type": "Sick Leave",
+      "from": "11-07-2025",
+       "to": "11-07-2025",
+      "days": "0.5 Day(s)",
+       "session": "Half day(AN)",
+      "dates": "11-07-2025/Full Day",
+      "requestDate": "11-07-2025",
+       "notify": "HR Head",
+       "document": "medical_report.pdf",
+       "reason": "Medical emergency",
+      "status": "Pending", 
+        },
+        {
+      "name": "Sakshi",
+      "id": "100849",
+      "type": "Casual Leave",
+      "from": "11-07-2025",
+       "to": "11-07-2025",
+      "days": "1 Day(s)",
+       "session": "Full Day",
+      "dates": "11-07-2025/Full Day",
+      "requestDate": "11-07-2025",
+       "notify": "HR Head",
+       "document": "medical_report.pdf",
+       "reason": "Medical emergency",
+      "status": "Approved",
+        },
+    {
+        "name": "Aarav Bijeesh",
+      "id": "100849",
+      "type": "Casual Leave",
+      "from": "11-07-2025",
+       "to": "13-07-2025",
+      "days": "1 Day(s)",
+       "session": "Full Day",
+      "dates": "13-07-2025/Full Day",
+      "requestDate": "11-07-2025",
+       "notify": "HR Head",
+       "document": "medical_report.pdf",
+       "reason": "Medical emergency",
+      "status": "Approved",
+    },
+    {
+     "name": "Aarav Bijeesh",
+      "id": "100849",
+      "type": "Sick Leave",
+      "from": "11-07-2025",
+       "to": "11-07-2025",
+      "days": "1 Day(s)",
+       "session": "Full Day",
+      "dates": "11-07-2025/Full Day",
+      "requestDate": "11-07-2025",
+       "notify": "HR Head",
+       "document": "medical_report.pdf",
+       "reason": "Medical emergency",
+      "status": "Rejected",
+    },
+    ]
+    return jsonify(leave_approval_data)
+
+
+@app.route('/api/leavepolicies', methods=['GET'])
+def get_admin_leave_policies():
+    leave_policies= [
+    { "name": "Casual Leave", "createdOn": "14 Apr 2025", "type": "All" },
+    { "name": "Sick Leave", "createdOn": "06 Apr 2025", "type": "All" },
+    { "name": "Maternity", "createdOn": "27 Mar 2025", "type": "Specific" },
+    { "name": "Paternity", "createdOn": "20 Mar 2025", "type": "Specific" },
+    { "name": "Annual Leave", "createdOn": "16 Mar 2025", "type": "All" },
+    { "name": "Sabbatical Leave", "createdOn": "16 Mar 2025", "type": "All" },
+    { "name": "Medical Leave", "createdOn": "16 Mar 2025", "type": "All" },
+]
+    return jsonify(leave_policies)
+
+
+
+
+@app.route('/api/myteamla', methods = ['GET'])
+def get_my_team_la():
+    my_team_la = [
+        {
+      "id": 1,
+       "name": "Sakshi",
+      "empId": "100849",
+      "type": "Sick Leave",
+      "from": "11-07-2025",
+       "to": "11-07-2025",
+      "days": "1 Day(s)",
+       "session": "Full Day",
+      "date": "11-07-2025/Full Day",
+      "request": "11-07-2025",
+       "notify": "HR Head",
+       "document": "medical_report.pdf",
+       "reason": "Medical emergency",
+      "status": "Pending",
+       "image": "https://i.pravatar.cc/40?img=4"
+    },
+    {
+      "id": 2,
+       "name": "Asolin",
+      "empId": "100849",
+      "type": "Sick Leave",
+      "from": "11-07-2025",
+       "to": "11-07-2025",
+      "days": "0.5 Day(s)",
+       "session": "Full Day",
+      "date": "11-07-2025/Half Day",
+      "request": "11-07-2025",
+       "notify": "HR Head",
+       "document": "medical_report.pdf",
+       "reason": "Medical emergency",
+      "status": "Pending",
+       "image": "https://i.pravatar.cc/40?img=4"
+    },
+    {
+      "id": 3,
+       "name": "Sakshi",
+      "empId": "100849",
+      "type": "Casual Leave",
+      "from": "11-07-2025",
+       "to": "11-07-2025",
+      "days": "1 Day(s)",
+       "session": "Full Day",
+      "date": "11-07-2025/Full Day",
+      "request": "11-07-2025",
+       "notify": "HR Head",
+       "document": "medical_report.pdf",
+       "reason": "Medical emergency",
+      "status": "Approved",
+       "image": "https://i.pravatar.cc/40?img=4"
+    },
+    {
+      "id": 4,
+      "name": "Asolin",
+      "empId": "100849",
+      "type": "Casual Leave",
+      "from": "11-07-2025",
+       "to": "11-07-2025",
+      "days": "1 Day(s)",
+       "session": "Full Day",
+      "date": "11-07-2025/Full Day",
+      "request": "11-07-2025",
+       "notify": "HR Head",
+       "document": "medical_report.pdf",
+       "reason": "Medical emergency",
+      "status": "Approved",
+       "image": "https://i.pravatar.cc/40?img=4"
+    },
+    {
+      "id": 5,
+      "name": "Sakshi",
+      "empId": "100849",
+      "type": "Sick Leave",
+      "from": "11-07-2025",
+       "to": "11-07-2025",
+      "days": "1 Day(s)",
+       "session": "Full Day",
+      "date": "11-07-2025/Full Day",
+      "request": "11-07-2025",
+       "notify": "HR Head",
+       "document": "medical_report.pdf",
+       "reason": "Medical emergency",
+      "status": "Rejected",
+       "image": "https://i.pravatar.cc/40?img=4"
+    } 
+    ]
+    return jsonify(my_team_la)
+
+
+@app.route('/api/myteamra' ,methods = ['GET'])
+def get_myteam_ra():
+    my_team_ra = [
+         {
+      "id": 1,
+      "name": "Sakshi",
+      "empId": "100849",
+      "regDate": "11-07-2025/1st Half",
+      "attendance": "Present",
+      "requestDate": "11-07-2025",
+      "status": "Pending",
+      "img": "https://randomuser.me/api/portraits/women/13.jpg",
+    },
+    {
+      "id": 2,
+      "name": "Asolin",
+      "empId": "100849",
+      "regDate": "11-07-2025/1st Half",
+      "attendance": "Present",
+      "requestDate": "11-07-2025",
+      "status": "Approved",
+      "img": "https://randomuser.me/api/portraits/women/12.jpg",
+    },
+    {
+      "id": 3,
+      "name": "Sakshi",
+      "empId": "100849",
+      "regDate": "11-07-2025/1st Half",
+      "attendance": "Present",
+      "requestDate": "11-07-2025",
+      "status": "Approved",
+      "img": "https://randomuser.me/api/portraits/women/13.jpg",
+    },
+    {
+      "id": 4,
+      "name": "Asolin",
+      "empId": "100849",
+      "regDate": "11-07-2025/Full Day",
+      "attendance": "Present",
+      "requestDate": "11-07-2025",
+      "status": "Approved",
+      "img": "https://randomuser.me/api/portraits/women/12.jpg",
+    }
+    ]
+    return jsonify(my_team_ra)
+
+
+@app.route('/api/regularizationapproval',methods =['GET'])
+def get_regularization_approval():
+    regularization_approval = [
+         {
+      "id": 1,
+      "name": "Aarav Bijeesh",
+      "empId": "100849",
+      "regDate": "11-07-2025/1st Half",
+      "attendance": "Present",
+      "requestDate": "11-07-2025",
+      "status": "Pending",
+      "img": "https://randomuser.me/api/portraits/men/11.jpg",
+    },
+    {
+      "id": 2,
+      "name": "Aiswarya Shyam",
+      "empId": "100849",
+      "regDate": "11-07-2025/1st Half",
+      "attendance": "Present",
+      "requestDate": "11-07-2025",
+      "status": "Approved",
+      "img": "https://randomuser.me/api/portraits/women/12.jpg",
+    },
+    {
+      "id": 3,
+      "name": "Sakshi",
+      "empId": "100849",
+      "regDate": "11-07-2025/1st Half",
+      "attendance": "Present",
+      "requestDate": "11-07-2025",
+      "status": "Approved",
+      "img": "https://randomuser.me/api/portraits/women/13.jpg",
+    },
+    {
+      "id": 4,
+      "name": "Ignatious Anto",
+      "empId": "100849",
+      "regDate": "11-07-2025/Full Day",
+      "attendance": "Present",
+      "requestDate": "11-07-2025",
+      "status": "Approved",
+      "img": "https://randomuser.me/api/portraits/men/15.jpg",
+    },
+    {
+      "id": 5,
+      "name": "Lakshmi",
+      "empId": "100849",
+      "regDate": "11-07-2025/Full Day",
+      "attendance": "Present",
+      "requestDate": "11-07-2025",
+      "status": "Approved",
+      "img": "https://randomuser.me/api/portraits/women/16.jpg",
+    }
+    ]
+    return jsonify(regularization_approval)
 
 
 #Mansoor code added 
