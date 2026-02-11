@@ -70,6 +70,8 @@ class LeaveType(Base):
     name = Column(String(50), unique=True, nullable=False)
     description = Column(Text)
     max_days_per_year = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    type = Column(String(20), default="All", nullable=False)
     
     # Relationships
     leave_balances = relationship("LeaveBalance", back_populates="leave_type", cascade="all, delete-orphan")
@@ -104,11 +106,13 @@ class LeaveRequest(Base):
     end_date = Column(Date, nullable=False)
     num_days = Column(Integer, nullable=False)
     reason = Column(Text)
-    status = Column(Enum('pending', 'approved', 'declined', name='request_status'), default='pending')
+    status = Column(Enum('pending', 'approved', 'rejected', name='request_status'), default='pending')
     applied_date = Column(DateTime, default=datetime.utcnow)
     approved_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     approval_date = Column(DateTime, nullable=True)
-    
+    approval_reason = Column(Text)
+    rejection_reason = Column(Text)
+
     # Relationships
     user = relationship("User", foreign_keys=[user_id])
     leave_type = relationship("LeaveType", back_populates="leave_requests")

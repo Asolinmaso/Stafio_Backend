@@ -29,6 +29,9 @@ from database import (
 # Create a Flask application instance
 app = Flask(__name__)
 
+from admin_endpoints import register_admin_endpoints
+register_admin_endpoints(app)
+
 # ============================================================
 # SIMPLE CORS HANDLING - ONE FUNCTION, ALWAYS WORKS
 # ============================================================
@@ -566,7 +569,8 @@ def google_login():
             return jsonify({
                 "user_id": user.id,
                 "username": user.username,
-                "role": user.role
+                "role": user.role,
+                "email": user.email
             }), 200
 
         # Create new user (Google user → no password)
@@ -595,7 +599,8 @@ def google_login():
         return jsonify({
             "user_id": new_user.id,
             "username": new_user.username,
-            "role": new_user.role
+            "role": new_user.role,
+            "email": new_user.email
         }), 201
 
     except Exception as e:
@@ -625,7 +630,7 @@ def employee_login():
         ).first()
 
         if user and check_password_hash(user.password_hash, password):
-            return jsonify(user_id=user.id, role=user.role, username=user.username), 200
+            return jsonify(user_id=user.id, role=user.role, username=user.username,email=user.email), 200
         else:
             return jsonify({"message": "Invalid employee username/email or password."}), 401
     except Exception as e:
@@ -818,7 +823,7 @@ def admin_login():
         ).first()
 
         if user and check_password_hash(user.password_hash, password):
-            return jsonify(user_id=user.id, role=user.role, username=user.username), 200
+            return jsonify(user_id=user.id, role=user.role, username=user.username,email=user.email), 200
         else:
             return jsonify({"message": "Invalid admin username/email or password."}), 401
     except Exception as e:
@@ -1186,15 +1191,24 @@ def approve_leave_request(request_id):
     """Approve a leave request"""
     data = request.get_json() or {}
     reason = data.get('reason', '')
-    
+    approved_by = data.get('approved_by')  # 👈 get admin id
+
     db = SessionLocal()
     try:
-        leave_request = db.query(LeaveRequest).filter(LeaveRequest.id == request_id).first()
+        leave_request = db.query(LeaveRequest).filter(
+            LeaveRequest.id == request_id
+        ).first()
+
         if not leave_request:
             return jsonify({"message": "Leave request not found"}), 404
-        
+
+        # ---- ADD THESE 3 LINES ----
         leave_request.status = 'approved'
-        
+        leave_request.approved_by = approved_by
+        leave_request.approval_date = datetime.utcnow()
+        leave_request.approval_reason = reason
+        # ---------------------------
+
         # Deduct from leave balance
         year = leave_request.start_date.year
         balance = db.query(LeaveBalance).filter(
@@ -1202,15 +1216,15 @@ def approve_leave_request(request_id):
             LeaveBalance.leave_type_id == leave_request.leave_type_id,
             LeaveBalance.year == year
         ).first()
-        
+
         if balance:
             balance.used = (balance.used or 0) + leave_request.num_days
             balance.balance = balance.balance - leave_request.num_days
-        
+
         db.commit()
-        
+
         return jsonify({"message": "Leave request approved successfully"}), 200
-        
+
     except Exception as e:
         db.rollback()
         print(f"Approve leave error: {str(e)}")
@@ -1224,18 +1238,27 @@ def reject_leave_request(request_id):
     """Reject a leave request"""
     data = request.get_json() or {}
     reason = data.get('reason', '')
-    
+    approved_by = data.get('approved_by')  # 👈 admin id
+
     db = SessionLocal()
     try:
-        leave_request = db.query(LeaveRequest).filter(LeaveRequest.id == request_id).first()
+        leave_request = db.query(LeaveRequest).filter(
+            LeaveRequest.id == request_id
+        ).first()
+
         if not leave_request:
             return jsonify({"message": "Leave request not found"}), 404
-        
+
+        # ---- ADD THESE LINES ----
         leave_request.status = 'rejected'
+        leave_request.rejection_reason = reason
+        leave_request.approved_by = approved_by  # same column for approve/reject
+        # ------------------------
+
         db.commit()
-        
+
         return jsonify({"message": "Leave request rejected"}), 200
-        
+
     except Exception as e:
         db.rollback()
         print(f"Reject leave error: {str(e)}")
@@ -1458,6 +1481,120 @@ def get_regularization_data():
         return jsonify([]), 200
     finally:
         db.close()
+
+@app.route('/api/regularization', methods=['POST'])
+def create_regularization():
+    """
+    Create a regularization request
+    """
+    data = request.get_json() or {}
+
+    user_id = request.headers.get('X-User-ID')
+    date_str = data.get('date')
+    session_type = data.get('session_type')        # Full Day / Half Day (FN/AN)
+    attendance_type = data.get('attendance_type')  # Present / Absent
+    reason = data.get('reason')
+
+    # ---------- Validation ----------
+    if not user_id:
+        return jsonify({"message": "User ID missing"}), 400
+
+    if not date_str:
+        return jsonify({"message": "Date is required"}), 400
+
+    if not attendance_type:
+        return jsonify({"message": "Attendance type is required"}), 400
+
+    # ---------- Insert ----------
+    db = SessionLocal()
+    try:
+        new_regularization = Regularization(
+            user_id=int(user_id),
+            date=datetime.strptime(date_str, '%Y-%m-%d').date(),
+            session_type=session_type or "Full Day",
+            attendance_type=attendance_type,
+            reason=reason,
+            status="pending"
+        )
+
+        db.add(new_regularization)
+        db.commit()
+        db.refresh(new_regularization)
+
+        return jsonify({
+            "message": "Regularization request submitted successfully",
+            "id": new_regularization.id
+        }), 201
+
+    except Exception as e:
+        db.rollback()
+        print("Create Regularization Error:", str(e))
+        return jsonify({"message": "Failed to submit regularization"}), 500
+
+    finally:
+        db.close()
+
+@app.route('/api/regularization/<int:reg_id>', methods=['PUT'])
+def update_regularization(reg_id):
+    user_id = request.headers.get('X-User-ID')
+    data = request.get_json() or {}
+
+    db = SessionLocal()
+    try:
+        reg = db.query(Regularization).filter_by(
+            id=reg_id,
+            user_id=int(user_id)
+        ).first()
+
+        if not reg:
+            return jsonify({"message": "Record not found"}), 404
+
+        if reg.status != "pending":
+            return jsonify({"message": "Cannot edit approved/rejected request"}), 403
+
+        reg.date = datetime.strptime(data['date'], '%Y-%m-%d').date()
+        reg.session_type = data.get('session_type')
+        reg.attendance_type = data.get('attendance_type')
+        reg.reason = data.get('reason')
+
+        db.commit()
+        return jsonify({"message": "Regularization updated"}), 200
+
+    except Exception as e:
+        db.rollback()
+        print(e)
+        return jsonify({"message": "Update failed"}), 500
+    finally:
+        db.close()
+
+@app.route('/api/regularization/<int:reg_id>', methods=['DELETE'])
+def delete_regularization(reg_id):
+    user_id = request.headers.get('X-User-ID')
+
+    db = SessionLocal()
+    try:
+        reg = db.query(Regularization).filter_by(
+            id=reg_id,
+            user_id=int(user_id)
+        ).first()
+
+        if not reg:
+            return jsonify({"message": "Record not found"}), 404
+
+        if reg.status != "pending":
+            return jsonify({"message": "Cannot delete approved/rejected request"}), 403
+
+        db.delete(reg)
+        db.commit()
+        return jsonify({"message": "Regularization deleted"}), 200
+
+    except Exception as e:
+        db.rollback()
+        print(e)
+        return jsonify({"message": "Delete failed"}), 500
+    finally:
+        db.close()
+
 
 
 @app.route('/api/myholidays', methods=['GET'])
@@ -1688,8 +1825,8 @@ def get_admin_leave_policies():
             leave_policies.append({
                 "id": lt.id,
                 "name": lt.name,
-                "createdOn": "",  # Add created_at to LeaveType model if needed
-                "type": "All",
+                "createdOn": lt.created_at.strftime("%d %b %Y") if lt.created_at else "",  # Add created_at to LeaveType model if needed
+                "type": lt.type,
                 "max_days": lt.max_days_per_year,
                 "description": lt.description or ""
             })
@@ -1707,6 +1844,99 @@ def get_admin_leave_policies():
     except Exception as e:
         print(f"Leave policies error: {str(e)}")
         return jsonify([]), 200
+    finally:
+        db.close()
+
+@app.route('/api/leavepolicies/<int:leave_id>', methods=['PUT'])
+def update_leave_policy(leave_id):
+    db = SessionLocal()
+    try:
+        data = request.json
+
+        leave_type = db.query(LeaveType).filter(LeaveType.id == leave_id).first()
+        if not leave_type:
+            return jsonify({"message": "Leave policy not found"}), 404
+
+        # Update fields only if provided
+        leave_type.name = data.get("name", leave_type.name)
+        leave_type.description = data.get("description", leave_type.description)
+        leave_type.max_days_per_year = data.get("max_days", leave_type.max_days_per_year)
+        leave_type.type = data.get("type", leave_type.type)
+
+        db.commit()
+
+        return jsonify({"message": "Leave policy updated successfully"}), 200
+
+    except Exception as e:
+        db.rollback()
+        print("Update error:", str(e))
+        return jsonify({"message": "Failed to update leave policy"}), 500
+    finally:
+        db.close()
+
+@app.route('/api/leavepolicies/<int:leave_id>', methods=['DELETE'])
+def delete_leave_policy(leave_id):
+    db = SessionLocal()
+    try:
+        leave_type = db.query(LeaveType).filter(LeaveType.id == leave_id).first()
+        if not leave_type:
+            return jsonify({"message": "Leave policy not found"}), 404
+
+        db.delete(leave_type)
+        db.commit()
+
+        return jsonify({"message": "Leave policy deleted successfully"}), 200
+
+    except Exception as e:
+        db.rollback()
+        print("Delete error:", str(e))
+        return jsonify({"message": "Failed to delete leave policy"}), 500
+    finally:
+        db.close()
+
+@app.route('/api/leavepolicies', methods=['POST'])
+def create_leave_policy():
+    db = SessionLocal()
+    try:
+        data = request.json
+
+        # ---------- Validation ----------
+        name = data.get("name")
+        max_days = data.get("max_days")
+
+        if not name:
+            return jsonify({"message": "Leave name is required"}), 400
+
+        if not max_days or int(max_days) <= 0:
+            return jsonify({"message": "Max days must be greater than 0"}), 400
+
+        # ---------- Create record ----------
+        leave_type = LeaveType(
+            name=name,
+            description=data.get("description"),
+            max_days_per_year=int(max_days),
+            type=data.get("type", "All")  # 👈 already built in frontend
+        )
+
+        db.add(leave_type)
+        db.commit()
+        db.refresh(leave_type)
+
+        # ---------- Response ----------
+        return jsonify({
+            "id": leave_type.id,
+            "name": leave_type.name,
+            "createdOn": leave_type.created_at.strftime("%d %b %Y") if leave_type.created_at else "",
+            "type": leave_type.type,
+            "max_days": leave_type.max_days_per_year,
+            "description": leave_type.description or ""
+        }), 201
+
+    except Exception as e:
+        db.rollback()
+        print("Create error:", str(e))
+        return jsonify({"message": "Failed to create leave policy"}), 500
+
     finally:
         db.close()
 
@@ -1890,54 +2120,86 @@ def get_admin_profile_data(user_id):
         if not user:
             return jsonify({"message": "User not found"}), 404
         
-        # Return only data from database, empty strings for fields not in database
+        # Fetch employee profile data
+        emp_profile = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user_id).first()
+        
+        # Parse skills from JSON string if stored
+        skills_list = []
+        if emp_profile and emp_profile.skills:
+            try:
+                import json
+                skills_list = json.loads(emp_profile.skills) if isinstance(emp_profile.skills, str) else emp_profile.skills
+            except:
+                skills_list = []
+        
+        # Get supervisor name
+        supervisor_name = ""
+        if emp_profile and emp_profile.supervisor:
+            supervisor_user = emp_profile.supervisor
+            supervisor_name = (
+                f"{supervisor_user.first_name or ''} {supervisor_user.last_name or ''}"
+            ).strip() or supervisor_user.username
+
+        # Get HR manager name
+        hr_manager_name = ""
+        if emp_profile and emp_profile.hr_manager:
+            hr_user = emp_profile.hr_manager
+            hr_manager_name = (
+                f"{hr_user.first_name or ''} {hr_user.last_name or ''}"
+            ).strip() or hr_user.username
+
+        
+        # Return data from database
         admin_profile_data = {
             "profile": {
-                "profileImage": "",
+                "profileImage": emp_profile.profile_image if emp_profile and emp_profile.profile_image else "",
                 "name": f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username,
-                "gender": "",
-                "dob": "",
-                "maritalStatus": "",
-                "nationality": "",
-                "bloodGroup": "",
+                "gender": emp_profile.gender if emp_profile and emp_profile.gender else "",
+                "dob": emp_profile.dob.strftime('%Y-%m-%d') if emp_profile and emp_profile.dob else "",
+                "maritalStatus": emp_profile.marital_status if emp_profile and emp_profile.marital_status else "",
+                "nationality": emp_profile.nationality if emp_profile and emp_profile.nationality else "",
+                "bloodGroup": emp_profile.blood_group if emp_profile and emp_profile.blood_group else "",
                 "email": user.email or "",
-                "phone": "",
-                "address": "",
-                "emergencyContactNumber": "",
-                "relationship": "",
-                "empType": "",
-                "department": "",
-                "location": "",
-                "supervisor": "",
-                "hrManager": "",
-                "empId": str(user.id) if user.id else "",
-                "status": ""
+                "phone": user.phone or "",
+                "address": emp_profile.address if emp_profile and emp_profile.address else "",
+                "emergencyContactNumber": emp_profile.emergency_contact if emp_profile and emp_profile.emergency_contact else "",
+                "relationship": emp_profile.emergency_relationship if emp_profile and emp_profile.emergency_relationship else "",
+                "empType": emp_profile.emp_type if emp_profile and emp_profile.emp_type else "",
+                "department": emp_profile.department if emp_profile and emp_profile.department else "",
+                "location": emp_profile.location if emp_profile and emp_profile.location else "",
+                "supervisor": supervisor_name,
+                "hrManager": hr_manager_name,
+                "supervisor_id": emp_profile.supervisor_id if emp_profile else None,
+                "hr_manager_id": emp_profile.hr_manager_id if emp_profile else None,
+                "empId": emp_profile.emp_id if emp_profile and emp_profile.emp_id else str(user.id),
+                "status": emp_profile.status if emp_profile and emp_profile.status else "Active",
+                "position": emp_profile.position if emp_profile and emp_profile.position else "",
             },
             "education": {
-                "institution": "",
-                "location": "",
-                "startDate": "",
-                "endDate": "",
-                "qualification": "",
-                "specialization": "",
-                "skills": [],
-                "portfolio": ""
+                "institution": emp_profile.institution if emp_profile and emp_profile.institution else "",
+                "location": emp_profile.edu_location if emp_profile and emp_profile.edu_location else "",
+                "eduStartDate": emp_profile.edu_start_date.strftime('%Y-%m-%d') if emp_profile and emp_profile.edu_start_date else "",
+                "eduEndDate": emp_profile.edu_end_date.strftime('%Y-%m-%d') if emp_profile and emp_profile.edu_end_date else "",
+                "qualification": emp_profile.qualification if emp_profile and emp_profile.qualification else "",
+                "specialization": emp_profile.specialization if emp_profile and emp_profile.specialization else "",
+                "skills": skills_list,
+                "portfolio": emp_profile.portfolio if emp_profile and emp_profile.portfolio else ""
             },
             "experience": {
-                "company": "",
-                "jobTitle": "",
-                "startDate": "",
-                "endDate": "",
-                "responsibilities": "",
-                "totalYears": ""
+                "company": emp_profile.prev_company if emp_profile and emp_profile.prev_company else "",
+                "jobTitle": emp_profile.prev_job_title if emp_profile and emp_profile.prev_job_title else "",
+                "expStartDate": emp_profile.exp_start_date.strftime('%Y-%m-%d') if emp_profile and emp_profile.exp_start_date else "",
+                "expEndDate": emp_profile.exp_end_date.strftime('%Y-%m-%d') if emp_profile and emp_profile.exp_end_date else "",
+                "responsibilities": emp_profile.responsibilities if emp_profile and emp_profile.responsibilities else "",
+                "totalYears": str(emp_profile.total_experience_years) if emp_profile and emp_profile.total_experience_years else ""
             },
             "bank": {
-                "bankName": "",
-                "branch": "",
-                "accountNumber": "",
-                "ifsc": "",
-                "aadhaar": "",
-                "pan": ""
+                "bankName": emp_profile.bank_name if emp_profile and emp_profile.bank_name else "",
+                "branch": emp_profile.bank_branch if emp_profile and emp_profile.bank_branch else "",
+                "accountNumber": emp_profile.account_number if emp_profile and emp_profile.account_number else "",
+                "ifsc": emp_profile.ifsc_code if emp_profile and emp_profile.ifsc_code else "",
+                "aadhaar": emp_profile.aadhaar_number if emp_profile and emp_profile.aadhaar_number else "",
+                "pan": emp_profile.pan_number if emp_profile and emp_profile.pan_number else ""
             },
             "documents": []
         }
@@ -1946,6 +2208,7 @@ def get_admin_profile_data(user_id):
     except Exception as e:
         if db:
             db.rollback()
+        print(f"Error getting admin profile: {str(e)}")
         return jsonify({"message": f"An error occurred: {str(e)}"}), 500
     finally:
         if db:
@@ -2991,7 +3254,6 @@ if __name__ == '__main__':
     print("Stafio Backend Server Starting")
     print("CORS: Enabled for all origins")
     print("="*60 + "\n")
-    
     # Initialize database tables (creates tables if they don't exist)
     try:
         init_db()
