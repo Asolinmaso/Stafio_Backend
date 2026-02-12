@@ -32,6 +32,10 @@ app = Flask(__name__)
 from admin_endpoints import register_admin_endpoints
 register_admin_endpoints(app)
 
+# Register admin leave workflow endpoints (admin → manager approval flow)
+from admin_leave_workflow_endpoints import register_admin_workflow_endpoints
+# We'll register after decorators are defined (need custom_admin_required)
+
 # ============================================================
 # SIMPLE CORS HANDLING - ONE FUNCTION, ALWAYS WORKS
 # ============================================================
@@ -132,6 +136,14 @@ def custom_user_required():
         return decorator
     return wrapper
 # --- END TEMPORARY DECORATORS ---
+
+# Now register the admin workflow endpoints (needs custom_admin_required decorator)
+register_admin_workflow_endpoints(app, custom_admin_required)
+
+# Register regularization approval/rejection endpoints with authorization checks
+# NOTE: Leave approval endpoints are already in this file (lines 1200-1290)
+from approval_endpoints import register_regularization_approval_endpoints
+register_regularization_approval_endpoints(app)
 
 
 # --- Basic Health Check Endpoints ---
@@ -1186,12 +1198,24 @@ def get_leave_types():
 # LEAVE APPROVAL/REJECTION (PUT)
 # =============================================================================
 
+
 @app.route('/api/leave_requests/<int:request_id>/approve', methods=['PUT'])
 def approve_leave_request(request_id):
-    """Approve a leave request"""
-    data = request.get_json() or {}
+    """Approve a leave request with authorization check"""
+    # Use silent=True to avoid errors when body is empty or missing
+    data = request.get_json(silent=True) or {}
     reason = data.get('reason', '')
-    approved_by = data.get('approved_by')  # 👈 get admin id
+    approved_by = data.get('approved_by')  # From request body (legacy)
+    approver_id = request.headers.get('X-User-ID')  # From header (new)
+    
+    # Debug logging
+    print(f"Approve request {request_id}: approver_id from header={approver_id}, from body={approved_by}")
+    
+    # Use header if available, fallback to body
+    final_approver_id = approver_id if approver_id else approved_by
+    
+    if not final_approver_id:
+        return jsonify({"message": "Approver ID is required (X-User-ID header or approved_by in body)"}), 400
 
     db = SessionLocal()
     try:
@@ -1201,13 +1225,31 @@ def approve_leave_request(request_id):
 
         if not leave_request:
             return jsonify({"message": "Leave request not found"}), 404
+        
+        print(f"Leave request status: {leave_request.status}, approver_type: {leave_request.approver_type}")
+        
+        if leave_request.status != 'pending':
+            return jsonify({"message": f"Request is already {leave_request.status}"}), 400
+        
+        # --- AUTHORIZATION CHECK (NEW) ---
+        if leave_request.approver_type == 'manager':
+            # Only designated manager can approve admin requests
+            if not leave_request.designated_approver_id:
+                return jsonify({"message": "No designated approver assigned"}), 400
+            if not final_approver_id or int(final_approver_id) != leave_request.designated_approver_id:
+                return jsonify({"message": "Only the designated manager can approve this request"}), 403
+        elif leave_request.approver_type == 'admin' or not leave_request.approver_type:
+            # Employee requests - verify approver is admin (optional check for backward compatibility)
+            if final_approver_id:
+                approver = db.query(User).filter(User.id == int(final_approver_id)).first()
+                if approver and approver.role != 'admin':
+                    return jsonify({"message": "Only admins can approve employee leave requests"}), 403
+        # --- END AUTHORIZATION CHECK ---
 
-        # ---- ADD THESE 3 LINES ----
         leave_request.status = 'approved'
-        leave_request.approved_by = approved_by
+        leave_request.approved_by = int(final_approver_id) if final_approver_id else None
         leave_request.approval_date = datetime.utcnow()
         leave_request.approval_reason = reason
-        # ---------------------------
 
         # Deduct from leave balance
         year = leave_request.start_date.year
@@ -1233,12 +1275,24 @@ def approve_leave_request(request_id):
         db.close()
 
 
+
 @app.route('/api/leave_requests/<int:request_id>/reject', methods=['PUT'])
 def reject_leave_request(request_id):
-    """Reject a leave request"""
-    data = request.get_json() or {}
+    """Reject a leave request with authorization check"""
+    # Use silent=True to avoid errors when body is empty or missing
+    data = request.get_json(silent=True) or {}
     reason = data.get('reason', '')
-    approved_by = data.get('approved_by')  # 👈 admin id
+    approved_by = data.get('approved_by')  # From request body (legacy)
+    approver_id = request.headers.get('X-User-ID')  # From header (new)
+    
+    # Debug logging
+    print(f"Reject request {request_id}: approver_id from header={approver_id}, from body={approved_by}")
+    
+    # Use header if available, fallback to body
+    final_approver_id = approver_id if approver_id else approved_by
+    
+    if not final_approver_id:
+        return jsonify({"message": "Approver ID is required (X-User-ID header or approved_by in body)"}), 400
 
     db = SessionLocal()
     try:
@@ -1248,12 +1302,30 @@ def reject_leave_request(request_id):
 
         if not leave_request:
             return jsonify({"message": "Leave request not found"}), 404
+        
+        print(f"Leave request status: {leave_request.status}, approver_type: {leave_request.approver_type}")
+        
+        if leave_request.status != 'pending':
+            return jsonify({"message": f"Request is already {leave_request.status}"}), 400
+        
+        # --- AUTHORIZATION CHECK (NEW) ---
+        if leave_request.approver_type == 'manager':
+            # Only designated manager can reject admin requests
+            if not leave_request.designated_approver_id:
+                return jsonify({"message": "No designated approver assigned"}), 400
+            if not final_approver_id or int(final_approver_id) != leave_request.designated_approver_id:
+                return jsonify({"message": "Only the designated manager can reject this request"}), 403
+        elif leave_request.approver_type == 'admin' or not leave_request.approver_type:
+            # Employee requests - verify approver is admin (optional check for backward compatibility)
+            if final_approver_id:
+                approver = db.query(User).filter(User.id == int(final_approver_id)).first()
+                if approver and approver.role != 'admin':
+                    return jsonify({"message": "Only admins can reject employee leave requests"}), 403
+        # --- END AUTHORIZATION CHECK ---
 
-        # ---- ADD THESE LINES ----
         leave_request.status = 'rejected'
         leave_request.rejection_reason = reason
-        leave_request.approved_by = approved_by  # same column for approve/reject
-        # ------------------------
+        leave_request.approved_by = int(final_approver_id) if final_approver_id else None
 
         db.commit()
 
@@ -1485,7 +1557,7 @@ def get_regularization_data():
 @app.route('/api/regularization', methods=['POST'])
 def create_regularization():
     """
-    Create a regularization request
+    Create a regularization request for employee
     """
     data = request.get_json() or {}
 
