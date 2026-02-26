@@ -23,7 +23,8 @@ from database import (
     Holiday, Department, TeamMember,
     # New modules
     SalaryStructure, Payroll, Task, PerformanceReview,
-    Document, SystemSettings, Notification, Broadcast
+    Document, SystemSettings, Notification, Broadcast,
+    Announcement
 )
 
 # Create a Flask application instance
@@ -139,64 +140,7 @@ def custom_user_required():
 def hello_world():
     return 'Hello, World! Welcome to Leave Management Backend!'
 
-@app.route('/admin_dashboard')
-def admin_dashboard():
-    """Get admin dashboard statistics"""
-    db = SessionLocal()
-    try:
-        today = datetime.now().date()
-        
-        # Total employees
-        total_employees = db.query(User).filter(User.role == 'employee').count()
-        
-        # On Time today (attendance with 'On Time' status)
-        on_time = db.query(Attendance).filter(
-            Attendance.date == today,
-            Attendance.status == 'On Time'
-        ).count()
-        
-        # On Leave today - employees with approved leave that includes today's date
-        on_leave = db.query(LeaveRequest).filter(
-            LeaveRequest.status == 'approved',
-            LeaveRequest.start_date <= today,
-            LeaveRequest.end_date >= today
-        ).count()
-        
-        # Late Arrival today
-        late_arrival = db.query(Attendance).filter(
-            Attendance.date == today,
-            Attendance.status == 'Late'
-        ).count()
-        
-        # Pending Approval - leave requests with pending status
-        pending_approval = db.query(LeaveRequest).filter(
-            LeaveRequest.status == 'pending'
-        ).count()
-        
-        # This week holiday (placeholder - would need holiday table)
-        this_week_holiday = 0
-        
-        return jsonify({
-            "total_employees": total_employees,
-            "On_Time": on_time,
-            "On_Leave": on_leave,
-            "Late_Arrival": late_arrival,
-            "Pending_Approval": pending_approval,
-            "This_Week_Hoilday": this_week_holiday
-        }), 200
-        
-    except Exception as e:
-        print(f"Admin dashboard error: {str(e)}")
-        return jsonify({
-            "total_employees": 0,
-            "On_Time": 0,
-            "On_Leave": 0,
-            "Late_Arrival": 0,
-            "Pending_Approval": 0,
-            "This_Week_Hoilday": 0
-        }), 200
-    finally:
-        db.close()
+
 
 @app.route('/test_db_connection')
 def test_db_connection():
@@ -2103,6 +2047,48 @@ def get_regularization_approval():
         db.close()
 
 
+@app.route('/api/admin/regularization/<int:request_id>', methods=['PUT', 'PATCH', 'OPTIONS'])
+@custom_admin_required()
+def update_regularization_status(request_id):
+    """Update regularization status (Approve/Reject)"""
+    data = request.get_json() or {}
+    status = data.get('status', '').lower()
+    reason = data.get('reason', '')
+    approver_id = request.headers.get('X-User-ID')
+    
+    if status not in ['approved', 'rejected']:
+        return jsonify({"message": "Invalid status"}), 400
+        
+    db = SessionLocal()
+    try:
+        req = db.query(Regularization).filter(Regularization.id == request_id).first()
+        if not req:
+            return jsonify({"message": "Request not found"}), 404
+            
+        req.status = status
+        if status == 'approved':
+            req.approval_reason = reason
+        else:
+            req.rejection_reason = reason
+
+        if approver_id:
+            try:
+                req.approved_by = int(approver_id)
+            except ValueError:
+                pass
+        req.approval_date = datetime.utcnow()
+        db.commit()
+        
+        return jsonify({"message": f"Regularization {status} successfully"}), 200
+        
+    except Exception as e:
+        db.rollback()
+        print(f"Error updating regularization: {str(e)}")
+        return jsonify({"message": str(e)}), 500
+    finally:
+        db.close()
+
+
 #Mansoor code added 
 
 # --- Admin Profile Endpoint ---
@@ -3185,8 +3171,15 @@ def get_broadcasts():
             result.append({
                 "id": b.id,
                 "title": b.title,
+                "eventName": b.event_name or b.title,
+                "event_date": b.event_date.strftime('%Y-%m-%d') if b.event_date else None,
+                "event_time": b.event_time,
+                "event_type": b.event_type,
                 "message": b.message,
                 "target_audience": b.target_audience,
+                "author_name": b.author_name,
+                "author_email": b.author_email,
+                "author_designation": b.author_designation,
                 "created_at": b.created_at.isoformat() if b.created_at else None
             })
         return jsonify(result), 200
@@ -3246,6 +3239,66 @@ def create_broadcast():
     finally:
         db.close()
 
+
+# ==========================================================
+# ADD NEW ANNOUNCEMENT
+# ==========================================================
+
+@app.route('/api/admin/announcements', methods=['POST'])
+def add_announcement():
+    db = SessionLocal()
+    try:
+        data = request.get_json()
+
+        new_announcement = Announcement(
+            title=data.get("title"),
+            message=data.get("message"),
+            target_audience=data.get("target_audience", "all"),
+            is_active=data.get("is_active", True)
+        )
+
+        db.add(new_announcement)
+        db.commit()
+
+        return jsonify({
+            "message": "Announcement created successfully"
+        }), 201
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({"message": str(e)}), 500
+    finally:
+        db.close()
+
+# ==========================================================
+# GET ALL ANNOUNCEMENTS
+# ==========================================================
+
+@app.route('/api/admin/announcements', methods=['GET'])
+def get_all_announcements():
+    db = SessionLocal()
+    try:
+        announcements = db.query(Announcement).order_by(
+            Announcement.created_at.desc()
+        ).all()
+
+        result = []
+        for a in announcements:
+            result.append({
+                "id": a.id,
+                "title": a.title,
+                "message": a.message,
+                "target_audience": a.target_audience,
+                "is_active": a.is_active,
+                "created_at": a.created_at.strftime("%d %b %Y %H:%M")
+            })
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        return jsonify({"message": str(e)}), 500
+    finally:
+        db.close()
 
 # Run the Flask application
 if __name__ == '__main__':
