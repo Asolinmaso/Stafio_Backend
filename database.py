@@ -8,6 +8,7 @@ from sqlalchemy import func, extract
 from datetime import datetime, date, timedelta
 import os
 from dotenv import load_dotenv
+from sqlalchemy import Float
 
 load_dotenv()
 
@@ -104,7 +105,12 @@ class LeaveRequest(Base):
     leave_type_id = Column(Integer, ForeignKey('leave_types.id', ondelete='CASCADE'), nullable=False)
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
-    num_days = Column(Integer, nullable=False)
+    num_days = Column(Float, nullable=False)
+    day_type = Column(
+        Enum('full_day', 'half_day', name='day_type_enum'),
+        default='full_day',
+        nullable=False
+    )
     reason = Column(Text)
     status = Column(Enum('pending', 'approved', 'rejected', name='request_status'), default='pending')
     applied_date = Column(DateTime, default=datetime.utcnow)
@@ -112,11 +118,15 @@ class LeaveRequest(Base):
     approval_date = Column(DateTime, nullable=True)
     approval_reason = Column(Text)
     rejection_reason = Column(Text)
+    # NEW: Approver workflow fields
+    approver_type = Column(String(20), default='admin')  # 'admin' or 'manager'
+    designated_approver_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
 
     # Relationships
     user = relationship("User", foreign_keys=[user_id])
     leave_type = relationship("LeaveType", back_populates="leave_requests")
     approver = relationship("User", foreign_keys=[approved_by])
+    designated_approver = relationship("User", foreign_keys=[designated_approver_id])
 
 
 class OTP(Base):
@@ -220,11 +230,19 @@ class Regularization(Base):
     request_date = Column(DateTime, default=datetime.utcnow)
     approved_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'))
     approval_date = Column(DateTime)
+<<<<<<< HEAD
     approval_reason = Column(Text)
     rejection_reason = Column(Text)
+=======
+    rejection_reason = Column(Text)  # NEW: for storing rejection reason
+    # NEW: Approver workflow fields
+    approver_type = Column(String(20), default='admin')  # 'admin' or 'manager'
+    designated_approver_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+>>>>>>> main
     
     user = relationship("User", foreign_keys=[user_id])
     approver = relationship("User", foreign_keys=[approved_by])
+    designated_approver = relationship("User", foreign_keys=[designated_approver_id])
 
 
 # Holidays

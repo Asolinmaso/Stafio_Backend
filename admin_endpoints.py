@@ -6,6 +6,7 @@ from flask import Blueprint, jsonify, request
 from database import SessionLocal, User, LeaveRequest, LeaveType, TeamMember, EmployeeProfile, Department, Broadcast, BroadcastReaction
 from functools import wraps
 from datetime import datetime
+from sqlalchemy.exc import IntegrityError
 import json
 
 # Create Blueprint for admin endpoints
@@ -1086,6 +1087,169 @@ def get_settings_departments():
         db.close()
 
 
+
+# ============================================================================
+# EMPLOYEE ADDITION WITH AUTO TEAM MEMBER SYNC
+# ============================================================================
+
+def sync_team_member_relationship(db, employee_user_id, supervisor_id):
+    """
+    Helper function to sync team_members table when employee has a supervisor
+    - Creates or updates team_member entry
+    - Removes old relationship if supervisor changes
+    """
+    if not supervisor_id:
+        return
+    
+    try:
+        # Check if employee already has a team relationship
+        existing_tm = db.query(TeamMember).filter(
+            TeamMember.member_id == employee_user_id
+        ).first()
+        
+        if existing_tm:
+            # If supervisor changed, update it
+            if existing_tm.manager_id != supervisor_id:
+                existing_tm.manager_id = supervisor_id
+        else:
+            # Create new team member relationship
+            new_tm = TeamMember(
+                manager_id=supervisor_id,
+                member_id=employee_user_id
+            )
+            db.add(new_tm)
+    except Exception as e:
+        print(f"Error in sync_team_member_relationship: {str(e)}")
+        raise
+
+
+@admin_bp.route('/api/admin/add_employee', methods=['POST'])
+@admin_required()
+def add_employee():
+    """
+    Create a new employee with auto-generated employee_id
+    Body: { first_name, last_name, email, phone, supervisor_id, hr_manager_id, 
+            department, position, emp_type, status, joining_date, profile_image }
+    Returns: Complete employee data including auto-generated employee_id
+    """
+    from werkzeug.security import generate_password_hash
+    
+    data = request.get_json()
+    db = SessionLocal()
+    
+    try:
+        # Validate required fields
+        required_fields = ['first_name', 'last_name', 'email', 'phone']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({"message": f"{field} is required"}), 400
+        
+        # Create user account first (password will be email prefix or a default)
+        default_password = data.get('email').split('@')[0] + "123"  # Default password
+        hashed_password = generate_password_hash(default_password)
+        
+        new_user = User(
+            username=data.get('email').split('@')[0],  # Use email prefix as username
+            password_hash=hashed_password,
+            email=data.get('email'),
+            phone=data.get('phone'),
+            first_name=data.get('first_name'),
+            last_name=data.get('last_name'),
+            role='employee'
+        )
+        db.add(new_user)
+        db.flush()  # Get the user.id without committing
+        
+        # Auto-generate employee_id from user.id
+        employee_id = str(new_user.id)
+        
+        # Parse joining date if provided
+        joining_date = None
+        if data.get('joining_date'):
+            try:
+                joining_date = datetime.strptime(data.get('joining_date'), '%Y-%m-%d').date()
+            except:
+                pass
+        
+        # Create employee profile
+        new_profile = EmployeeProfile(
+            user_id=new_user.id,
+            emp_id=employee_id,
+            emp_type=data.get('emp_type', 'Full Time'),
+            department=data.get('department'),
+            position=data.get('position'),
+            supervisor_id=data.get('supervisor_id'),
+            hr_manager_id=data.get('hr_manager_id'),
+            status=data.get('status', 'Active'),
+            profile_image=data.get('profile_image', '')
+        )
+        db.add(new_profile)
+        
+        # Auto-populate team_members if supervisor is assigned
+        if data.get('supervisor_id'):
+            sync_team_member_relationship(db, new_user.id, data.get('supervisor_id'))
+        
+        db.commit()
+        db.refresh(new_user)
+        db.refresh(new_profile)
+        
+        # Return complete employee data
+        return jsonify({
+            "message": "Employee added successfully",
+            "employee": {
+                "id": new_user.id,
+                "employee_id": employee_id,
+                "name": f"{new_user.first_name} {new_user.last_name}",
+                "email": new_user.email,
+                "phone": new_user.phone,
+                "department": new_profile.department,
+                "position": new_profile.position,
+                "status": new_profile.status,
+                "default_password": default_password  # Send to admin so they can inform employee
+            }
+        }), 201
+        
+    except IntegrityError as e:
+        db.rollback()
+        print(f"IntegrityError in add_employee: {str(e)}")
+        return jsonify({"message": "Email or phone number already exists"}), 409
+    except Exception as e:
+        db.rollback()
+        print(f"Error in add_employee: {str(e)}")
+        return jsonify({"message": f"Error: {str(e)}"}), 500
+    finally:
+        db.close()
+
+
+@admin_bp.route('/api/admin/supervisors', methods=['GET'])
+@admin_required()
+def get_supervisors():
+    """
+    Get list of all potential supervisors (admins and managers)
+    Returns: List of users with id and name
+    """
+    db = SessionLocal()
+    try:
+        # Get all users who could be supervisors (admins and existing supervisors)
+        supervisors = db.query(User).all()
+        
+        supervisor_list = []
+        for user in supervisors:
+            supervisor_list.append({
+                "id": user.id,
+                "name": f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username,
+                "email": user.email
+            })
+        
+        return jsonify(supervisor_list), 200
+        
+    except Exception as e:
+        print(f"Error in get_supervisors: {str(e)}")
+        return jsonify({"message": f"Error: {str(e)}"}), 500
+    finally:
+        db.close()
+
+
 # ============================================================================
 # BROADCAST / ANNOUNCEMENTS ENDPOINT
 # ============================================================================
@@ -1239,3 +1403,4 @@ def register_admin_endpoints(app):
     """Register the admin blueprint with the Flask app"""
     app.register_blueprint(admin_bp)
     print("Admin endpoints registered successfully")
+
