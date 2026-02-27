@@ -23,7 +23,7 @@ from database import (
     Holiday, Department, TeamMember,
     # New modules
     SalaryStructure, Payroll, Task, PerformanceReview,
-    Document, SystemSettings, Notification, Broadcast
+    Document, SystemSettings, Notification, Broadcast, BreakSession
 )
 
 # Create a Flask application instance
@@ -150,9 +150,16 @@ def admin_dashboard():
         total_employees = db.query(User).filter(User.role == 'employee').count()
         
         # On Time today (attendance with 'On Time' status)
-        on_time = db.query(Attendance).filter(
+        on_time = db.query(Attendance).join(User, Attendance.user_id == User.id).filter(
             Attendance.date == today,
-            Attendance.status == 'On Time'
+            Attendance.status == 'On Time',
+            User.role == 'employee'
+        ).count()
+
+        late_arrival = db.query(Attendance).join(User, Attendance.user_id == User.id).filter(
+            Attendance.date == today,
+            Attendance.status == 'Late',
+            User.role == 'employee'
         ).count()
         
         # On Leave today - employees with approved leave that includes today's date
@@ -162,11 +169,8 @@ def admin_dashboard():
             LeaveRequest.end_date >= today
         ).count()
         
-        # Late Arrival today
-        late_arrival = db.query(Attendance).filter(
-            Attendance.date == today,
-            Attendance.status == 'Late'
-        ).count()
+        print("DEBUG on_time:", on_time)  # add this
+
         
         # Pending Approval - leave requests with pending status
         pending_approval = db.query(LeaveRequest).filter(
@@ -198,6 +202,210 @@ def admin_dashboard():
     finally:
         db.close()
 
+@app.route('/api/attendance/start-break', methods=['POST'])
+def start_break():
+    user_id = request.headers.get('X-User-ID')
+    if not user_id:
+        return jsonify({"message": "User ID required"}), 400
+
+    db = SessionLocal()
+    try:
+        today = datetime.now().date()
+
+        new_break = BreakSession(
+            user_id=int(user_id),
+            date=today,
+            break_start=datetime.now()
+        )
+
+        db.add(new_break)
+        db.commit()
+
+        return jsonify({"message": "Break started"}), 200
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({"message": str(e)}), 500
+    finally:
+        db.close()
+
+@app.route('/api/attendance/end-break', methods=['POST'])
+def end_break():
+    user_id = request.headers.get('X-User-ID')
+    if not user_id:
+        return jsonify({"message": "User ID required"}), 400
+
+    db = SessionLocal()
+    try:
+        today = datetime.now().date()
+
+        # Get latest open break (break_end is NULL)
+        active_break = db.query(BreakSession).filter(
+            BreakSession.user_id == int(user_id),
+            BreakSession.date == today,
+            BreakSession.break_end.is_(None)
+        ).order_by(BreakSession.id.desc()).first()
+
+        if not active_break:
+            return jsonify({"message": "No active break found"}), 400
+
+        active_break.break_end = datetime.now()
+
+        # Calculate break minutes
+        duration = active_break.break_end - active_break.break_start
+        active_break.break_minutes = int(duration.total_seconds() // 60)
+
+        db.commit()
+
+        return jsonify({
+            "message": "Break ended",
+            "break_minutes": active_break.break_minutes
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({"message": str(e)}), 500
+    finally:
+        db.close()
+
+@app.route('/api/attendance/punch-in', methods=['POST'])
+def punch_in():
+    user_id = request.headers.get('X-User-ID')
+    if not user_id:
+        return jsonify({"message": "User ID required"}), 400
+
+    db = SessionLocal()
+    try:
+        today = datetime.now().date()
+
+        # Check if already punched in today
+        existing = db.query(Attendance).filter(
+            Attendance.user_id == int(user_id),
+            Attendance.date == today
+        ).first()
+
+        if existing:
+            return jsonify({"message": "Already punched in today"}), 400
+
+        new_attendance = Attendance(
+            user_id=int(user_id),
+            date=today,
+            check_in=datetime.now(),
+            status="On Time"
+        )
+
+        db.add(new_attendance)
+        db.commit()
+
+        return jsonify({"message": "Punch in successful"}), 200
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({"message": str(e)}), 500
+    finally:
+        db.close()
+
+@app.route('/api/attendance/punch-out', methods=['POST'])
+def punch_out():
+    user_id = request.headers.get('X-User-ID')
+    if not user_id:
+        return jsonify({"message": "User ID required"}), 400
+
+    db = SessionLocal()
+    try:
+        today = datetime.now().date()
+
+        attendance = db.query(Attendance).filter(
+            Attendance.user_id == int(user_id),
+            Attendance.date == today
+        ).first()
+
+        if not attendance:
+            return jsonify({"message": "No punch in found"}), 400
+
+        if attendance.check_out:
+            return jsonify({"message": "Already punched out"}), 400
+
+        attendance.check_out = datetime.now()
+
+        # Calculate total work time
+                # Total worked minutes (check_out - check_in)
+        total_duration = attendance.check_out - attendance.check_in
+        total_minutes = int(total_duration.total_seconds() // 60)
+
+        # Get total break minutes for today
+        breaks = db.query(func.sum(BreakSession.break_minutes)).filter(
+            BreakSession.user_id == int(user_id),
+            BreakSession.date == today
+        ).scalar()
+
+        total_break_minutes = int(breaks) if breaks else 0
+
+        # Net working minutes
+        net_minutes = total_minutes - total_break_minutes
+        if net_minutes < 0:
+            net_minutes = 0
+
+        hours = net_minutes // 60
+        minutes = net_minutes % 60
+
+        attendance.work_hours = f"{hours}h {minutes}m"
+
+        db.commit()
+
+        return jsonify({
+            "message": "Punch out successful",
+            "work_hours": attendance.work_hours
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({"message": str(e)}), 500
+    finally:
+        db.close()
+
+@app.route('/api/attendance/today', methods=['GET'])
+def get_today_attendance():
+    user_id = request.headers.get('X-User-ID')
+
+    db = SessionLocal()
+    try:
+        today = datetime.now().date()
+
+        attendance = db.query(Attendance).filter(
+            Attendance.user_id == user_id,
+            Attendance.date == today
+        ).first()
+
+        if not attendance:
+            return jsonify({}), 200
+
+        # Check active break
+        active_break = db.query(BreakSession).filter(
+            BreakSession.user_id == user_id,
+            BreakSession.date == today,
+            BreakSession.break_end == None
+        ).first()
+
+        breaks = db.query(func.sum(BreakSession.break_minutes)).filter(
+            BreakSession.user_id == user_id,
+            BreakSession.date == today
+        ).scalar()
+
+        return jsonify({
+            "check_in": attendance.check_in.isoformat() if attendance.check_in else None,
+            "check_out": attendance.check_out.isoformat() if attendance.check_out else None,
+            "work_hours": attendance.work_hours,
+            "active_break": True if active_break else False,
+            "total_break_minutes": int(breaks) if breaks else 0
+        }), 200
+
+    except Exception as e:
+        print("Today attendance error:", e)
+        return jsonify({}), 200
+    finally:
+        db.close()
+        
 @app.route('/test_db_connection')
 def test_db_connection():
     db = None
@@ -2124,13 +2332,8 @@ def get_admin_profile_data(user_id):
         emp_profile = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user_id).first()
         
         # Parse skills from JSON string if stored
-        skills_list = []
-        if emp_profile and emp_profile.skills:
-            try:
-                import json
-                skills_list = json.loads(emp_profile.skills) if isinstance(emp_profile.skills, str) else emp_profile.skills
-            except:
-                skills_list = []
+        # JUST RETURN AS PLAIN STRING
+        skills_list = emp_profile.skills if emp_profile and emp_profile.skills else ""
         
         # Get supervisor name
         supervisor_name = ""

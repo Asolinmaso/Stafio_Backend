@@ -204,7 +204,19 @@ class Attendance(Base):
     __table_args__ = (
         UniqueConstraint('user_id', 'date', name='unique_attendance'),
     )
+    
+#Calculating breaks
+class BreakSession(Base):
+    __tablename__ = 'break_sessions'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    date = Column(Date, nullable=False)
+    break_start = Column(DateTime, nullable=False)
+    break_end = Column(DateTime)
+    break_minutes = Column(Integer, default=0)
 
+    user = relationship("User")
 
 # Regularization Requests
 class Regularization(Base):
