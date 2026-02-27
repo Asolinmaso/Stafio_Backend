@@ -555,6 +555,7 @@ def google_login():
         db.close()
 
 
+
 @app.route('/employee_login', methods=['POST'])
 def employee_login():
     """Authenticate an employee user"""
