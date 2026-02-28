@@ -3,7 +3,7 @@ Admin Endpoints Module
 Additional API endpoints for admin section functionality
 """
 from flask import Blueprint, jsonify, request
-from database import SessionLocal, User, LeaveRequest, LeaveType, TeamMember, EmployeeProfile, Department
+from database import SessionLocal, User, LeaveRequest, LeaveType, TeamMember, EmployeeProfile, Department, Broadcast, BroadcastReaction
 from functools import wraps
 from datetime import datetime
 from sqlalchemy.exc import IntegrityError
@@ -1245,6 +1245,151 @@ def get_supervisors():
         
     except Exception as e:
         print(f"Error in get_supervisors: {str(e)}")
+        return jsonify({"message": f"Error: {str(e)}"}), 500
+    finally:
+        db.close()
+
+
+# ============================================================================
+# BROADCAST / ANNOUNCEMENTS ENDPOINT
+# ============================================================================
+
+@admin_bp.route('/api/admin/announcements', methods=['GET'])
+@admin_required()
+def get_admin_announcements():
+    """
+    Get all broadcast announcements for admin view
+    Returns: List of all broadcasts with sender info and new fields
+    """
+    db = SessionLocal()
+    try:
+        broadcasts = db.query(Broadcast).order_by(Broadcast.created_at.desc()).all()
+        result = []
+        for b in broadcasts:
+            sender = db.query(User).filter(User.id == b.sent_by).first()
+            result.append({
+                "id": b.id,
+                "title": b.title or b.event_name,
+                "message": b.message,
+                "target_audience": b.target_audience,
+                "created_at": b.created_at.isoformat() if b.created_at else None,
+                "is_active": b.is_active,
+                "sent_by_name": f"{sender.first_name or ''} {sender.last_name or ''}".strip() if sender else "System",
+                "event_date": b.event_date.strftime('%Y-%m-%d') if b.event_date else None,
+                "event_name": b.event_name,
+                "event_time": b.event_time,
+                "event_type": b.event_type,
+                "image_url": b.image_url,
+                "author_name": b.author_name,
+                "author_email": b.author_email,
+                "author_designation": b.author_designation,
+                "reactions_count": b.reactions_count
+            })
+        return jsonify(result), 200
+    except Exception as e:
+        print(f"Error in get_admin_announcements: {str(e)}")
+        return jsonify({"message": f"Error: {str(e)}"}), 500
+    finally:
+        db.close()
+
+
+@admin_bp.route('/api/admin/announcements', methods=['POST'])
+@admin_required()
+def create_announcement():
+    """
+    Create a new broadcast announcement
+    Body: JSON with all announcement fields
+    """
+    data = request.get_json()
+    user_id = request.headers.get('X-User-ID')
+    
+    db = SessionLocal()
+    try:
+        new_broadcast = Broadcast(
+            title=data.get('event_name'),
+            message=data.get('message', ''),
+            sent_by=int(user_id) if user_id else None,
+            target_audience=data.get('target_audience', 'all'),
+            event_date=datetime.strptime(data.get('event_date'), '%Y-%m-%d').date() if data.get('event_date') else None,
+            event_name=data.get('event_name'),
+            event_time=data.get('event_time'),
+            event_type=data.get('event_type'),
+            image_url=data.get('image_url'),
+            mentioned_employee_id=data.get('mentioned_employee_id'),
+            author_name=data.get('author_name'),
+            author_email=data.get('author_email'),
+            author_designation=data.get('author_designation')
+        )
+        
+        db.add(new_broadcast)
+        db.commit()
+        db.refresh(new_broadcast)
+        
+        return jsonify({
+            "message": "Announcement created successfully",
+            "id": new_broadcast.id
+        }), 201
+    except Exception as e:
+        db.rollback()
+        print(f"Error in create_announcement: {str(e)}")
+        return jsonify({"message": f"Error: {str(e)}"}), 500
+    finally:
+        db.close()
+
+
+@admin_bp.route('/api/admin/announcements/<int:broadcast_id>/react', methods=['POST'])
+def react_to_announcement(broadcast_id):
+    """
+    Toggle a reaction for an announcement
+    Body: { reaction_type }
+    """
+    data = request.get_json()
+    user_id = request.headers.get('X-User-ID')
+    reaction_type = data.get('reaction_type', 'like')
+    
+    if not user_id:
+        return jsonify({"message": "User ID required"}), 400
+        
+    db = SessionLocal()
+    try:
+        from database import BroadcastReaction
+        
+        # Check if reaction already exists
+        existing = db.query(BroadcastReaction).filter(
+            BroadcastReaction.broadcast_id == broadcast_id,
+            BroadcastReaction.user_id == int(user_id)
+        ).first()
+        
+        broadcast = db.query(Broadcast).filter(Broadcast.id == broadcast_id).first()
+        if not broadcast:
+            return jsonify({"message": "Announcement not found"}), 404
+            
+        if existing:
+            if existing.reaction_type == reaction_type:
+                # Remove reaction if same
+                db.delete(existing)
+                broadcast.reactions_count = max(0, broadcast.reactions_count - 1)
+                message = "Reaction removed"
+            else:
+                # Update reaction type
+                existing.reaction_type = reaction_type
+                message = "Reaction updated"
+        else:
+            # Add new reaction
+            new_reaction = BroadcastReaction(
+                broadcast_id=broadcast_id,
+                user_id=int(user_id),
+                reaction_type=reaction_type
+            )
+            db.add(new_reaction)
+            broadcast.reactions_count += 1
+            message = "Reaction added"
+            
+        db.commit()
+        return jsonify({"message": message, "reactions_count": broadcast.reactions_count}), 200
+    except Exception as e:
+        db.rollback()
+        print(f"Error in react_to_announcement: {str(e)}")
         return jsonify({"message": f"Error: {str(e)}"}), 500
     finally:
         db.close()
