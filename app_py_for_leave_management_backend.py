@@ -23,7 +23,8 @@ from database import (
     Holiday, Department, TeamMember,
     # New modules
     SalaryStructure, Payroll, Task, PerformanceReview,
-    Document, SystemSettings, Notification, Broadcast, BreakSession
+    Document, SystemSettings, Notification, Broadcast,BreakSession,
+    Announcement
 )
 
 # Create a Flask application instance
@@ -151,6 +152,7 @@ register_regularization_approval_endpoints(app)
 def hello_world():
     return 'Hello, World! Welcome to Leave Management Backend!'
 
+<<<<<<< HEAD
 @app.route('/admin_dashboard')
 def admin_dashboard():
     """Get admin dashboard statistics"""
@@ -213,6 +215,9 @@ def admin_dashboard():
         }), 200
     finally:
         db.close()
+=======
+
+>>>>>>> main
 
 @app.route('/api/attendance/start-break', methods=['POST'])
 def start_break():
@@ -645,8 +650,9 @@ def get_user_details(user_id):
 
 
 
-@app.route("/admin_google_register", methods=["POST"])
+@app.route('/admin_google_register', methods=['POST'])
 def admin_google_register():
+    ...
     data = request.get_json()
     email = data.get("email")
     username = data.get("username")
@@ -829,6 +835,7 @@ def google_login():
 
     finally:
         db.close()
+
 
 
 @app.route('/employee_login', methods=['POST'])
@@ -1891,10 +1898,12 @@ def get_holidays():
         for h in holidays:
             # Format date like "01 January, Wednesday"
             date_str = h.date.strftime('%d %B, %A')
+            holiday_type = "Restricted" if h.is_optional else "Mandatory"
             holiday_data.append({
                 "id": h.id,
                 "date": date_str,
-                "title": h.title
+                "title": h.title,
+                "type": holiday_type
             })
         
         # If no holidays in DB, provide default list
@@ -1912,6 +1921,52 @@ def get_holidays():
     except Exception as e:
         print(f"Holidays error: {str(e)}")
         return jsonify([]), 200
+    finally:
+        db.close()
+
+
+@app.route('/api/myholidays', methods=['POST'])
+def create_holiday():
+    """Create a new holiday"""
+    data = request.get_json()
+    title = data.get('title')
+    date_str = data.get('date') # Expected format 'YYYY-MM-DD'
+    holiday_type = data.get('type') # 'Mandatory' or 'Restricted'
+    
+    if not title or not date_str:
+        return jsonify({"message": "Title and date are required"}), 400
+        
+    db = SessionLocal()
+    try:
+        holiday_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        year = holiday_date.year
+        
+        # Check if date already exists
+        existing = db.query(Holiday).filter(Holiday.date == holiday_date).first()
+        if existing:
+            return jsonify({"message": "A holiday already exists on this date"}), 400
+            
+        new_holiday = Holiday(
+            title=title,
+            date=holiday_date,
+            is_optional=True if holiday_type == 'Restricted' else False,
+            year=year
+        )
+        db.add(new_holiday)
+        db.commit()
+        db.refresh(new_holiday)
+        
+        return jsonify({
+            "message": "Holiday added successfully",
+            "id": new_holiday.id,
+            "title": new_holiday.title,
+            "date": new_holiday.date.strftime('%d %B, %A')
+        }), 201
+        
+    except Exception as e:
+        db.rollback()
+        print(f"Error creating holiday: {str(e)}")
+        return jsonify({"message": f"Error: {str(e)}"}), 500
     finally:
         db.close()
 
@@ -1997,6 +2052,265 @@ def get_employees_data():
     except Exception as e:
         print(f"Employees list error: {str(e)}")
         return jsonify([]), 200
+    finally:
+        db.close()
+
+
+@app.route('/api/employees', methods=['POST'])
+def add_employee():
+    """Create a new employee (Admin only)"""
+    data = request.get_json()
+    
+    # Required validation
+    first_name = data.get('firstName')
+    last_name = data.get('lastName')
+    email = data.get('email')
+    emp_id = data.get('employeeId')
+    phone = data.get('phone')
+    
+    if not all([first_name, last_name, email, emp_id, phone]):
+        return jsonify({"message": "Missing required fields"}), 400
+        
+    db = SessionLocal()
+    try:
+        # Check if email/username/emp_id already exists
+        username = email.split('@')[0]
+        existing_user = db.query(User).filter((User.email == email) | (User.username == username)).first()
+        if existing_user:
+             return jsonify({"message": "User with this email already exists"}), 400
+            
+        existing_profile = db.query(EmployeeProfile).filter(EmployeeProfile.emp_id == emp_id).first()
+        if existing_profile:
+             return jsonify({"message": "Employee ID already exists"}), 400
+
+        # Create User
+        from werkzeug.security import generate_password_hash
+        default_password = generate_password_hash("Welcome@123")
+        new_user = User(
+            username=username,
+            password_hash=default_password,
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            role='employee',
+            phone=phone
+        )
+        db.add(new_user)
+        db.flush() 
+        
+        # Create Employee Profile
+        from datetime import datetime
+        dob_date = None
+        if data.get('dob'):
+             try: dob_date = datetime.strptime(data['dob'], '%Y-%m-%d').date()
+             except: pass
+             
+        joining_date = None
+        if data.get('joiningDate'):
+             try: joining_date = datetime.strptime(data['joiningDate'], '%Y-%m-%d').date()
+             except: pass
+
+        edu_start_date = None
+        if data.get('eduStartDate'):
+             try: edu_start_date = datetime.strptime(data['eduStartDate'], '%Y-%m-%d').date()
+             except: pass
+
+        edu_end_date = None
+        if data.get('eduEndDate'):
+             try: edu_end_date = datetime.strptime(data['eduEndDate'], '%Y-%m-%d').date()
+             except: pass
+
+        # Get supervisor_id and hr_manager_id if names are provided (simplified lookup)
+        def get_user_id_by_name(name):
+             if not name: return None
+             parts = name.split()
+             f_name = parts[0] if len(parts) > 0 else ""
+             l_name = parts[1] if len(parts) > 1 else ""
+             u = db.query(User).filter(User.first_name == f_name, User.last_name == l_name).first()
+             return u.id if u else None
+
+        new_profile = EmployeeProfile(
+            user_id=new_user.id,
+            emp_id=emp_id,
+            gender=data.get('gender'),
+            dob=dob_date,
+            marital_status=data.get('maritalStatus'),
+            emp_type=data.get('employmentType'),
+            department=data.get('department'),
+            position=data.get('designation'),
+            status=data.get('status', 'Active'),
+            # Supervisor / HR (assuming we pass names for now, but ID is better)
+            supervisor_id=get_user_id_by_name(data.get('supervisor')),
+            hr_manager_id=get_user_id_by_name(data.get('hrManager')),
+            # Education
+            institution=data.get('institution'),
+            qualification=data.get('course'),
+            specialization=data.get('specialization'),
+            edu_start_date=edu_start_date,
+            edu_end_date=edu_end_date,
+            skills=data.get('skills'),
+            portfolio=data.get('portfolioLink'),
+            blood_group=data.get('bloodGroup')
+        )
+        db.add(new_profile)
+        db.commit()
+        
+        return jsonify({"message": "Employee added successfully", "id": new_user.id}), 201
+        
+    except Exception as e:
+        db.rollback()
+        print(f"Error adding employee: {str(e)}")
+        return jsonify({"message": f"Error: {str(e)}"}), 500
+    finally:
+        db.close()
+
+
+@app.route('/api/employees/<int:user_id>', methods=['PUT'])
+def update_employee(user_id):
+    data = request.get_json()
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+            
+        profile = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user_id).first()
+        if not profile:
+            return jsonify({"message": "Profile not found"}), 404
+
+        # Update User fields
+        user.first_name = data.get('firstName', user.first_name)
+        user.last_name = data.get('lastName', user.last_name)
+        user.email = data.get('email', user.email)
+        user.phone = data.get('phone', user.phone)
+        
+        # Date parsing helper
+        from datetime import datetime
+        def parse_date(date_str):
+            if not date_str: return None
+            try: return datetime.strptime(date_str, '%Y-%m-%d').date()
+            except: return None
+
+        # Manager lookup helper
+        def get_user_id_by_name(name):
+            if not name: return None
+            parts = name.split()
+            f_name = parts[0] if len(parts) > 0 else ""
+            l_name = parts[1] if len(parts) > 1 else ""
+            u = db.query(User).filter(User.first_name == f_name, User.last_name == l_name).first()
+            return u.id if u else None
+
+        # Update Profile fields
+        profile.emp_id = data.get('employeeId', profile.emp_id)
+        profile.gender = data.get('gender', profile.gender)
+        profile.dob = parse_date(data.get('dob'))
+        profile.marital_status = data.get('maritalStatus', profile.marital_status)
+        profile.emp_type = data.get('employmentType', profile.emp_type)
+        profile.department = data.get('department', profile.department)
+        profile.position = data.get('designation', profile.position)
+        profile.status = data.get('status', 'Active')
+        
+        if data.get('supervisor'):
+            profile.supervisor_id = get_user_id_by_name(data.get('supervisor'))
+        if data.get('hrManager'):
+            profile.hr_manager_id = get_user_id_by_name(data.get('hrManager'))
+
+        # Education
+        profile.institution = data.get('institution', profile.institution)
+        profile.qualification = data.get('course', profile.qualification)
+        profile.specialization = data.get('specialization', profile.specialization)
+        profile.edu_start_date = parse_date(data.get('eduStartDate'))
+        profile.edu_end_date = parse_date(data.get('eduEndDate'))
+        profile.skills = data.get('skills', profile.skills)
+        profile.portfolio = data.get('portfolioLink', profile.portfolio)
+        profile.blood_group = data.get('bloodGroup', profile.blood_group)
+
+        db.commit()
+        return jsonify({"message": "Employee updated successfully"}), 200
+        
+    except Exception as e:
+        db.rollback()
+        print(f"Error updating employee: {str(e)}")
+        return jsonify({"message": f"Error: {str(e)}"}), 500
+    finally:
+        db.close()
+
+
+@app.route('/admin_profile/<int:user_id>', methods=['GET'])
+def get_admin_profile(user_id):
+    """Get full employee profile data (Admin view)"""
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+            
+        profile = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user_id).first()
+        
+        # Helper for names
+        def get_name(u_id):
+            if not u_id: return ""
+            u = db.query(User).filter(User.id == u_id).first()
+            return f"{u.first_name or ''} {u.last_name or ''}".strip() or u.username if u else ""
+
+        from datetime import datetime
+        # Format data to match frontend's expected structure
+        result = {
+            "profile": {
+                "user_id": user.id,
+                "name": f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username,
+                "first_name": user.first_name or "",
+                "last_name": user.last_name or "",
+                "email": user.email or "",
+                "phone": user.phone or "",
+                "empId": profile.emp_id if profile else "",
+                "position": profile.position if profile else "",
+                "empType": profile.emp_type if profile else "",
+                "department": profile.department if profile else "",
+                "status": profile.status if profile else "Active",
+                "gender": profile.gender if profile else "",
+                "dob": profile.dob.strftime('%d/%m/%Y') if profile and profile.dob else "Not Set",
+                "bloodGroup": profile.blood_group if profile else "",
+                "maritalStatus": profile.marital_status if profile else "",
+                "address": profile.address if profile else "",
+                "location": profile.location if profile else "",
+                "emergencyContactNumber": profile.emergency_contact if profile else "",
+                "relationship": profile.emergency_relationship if profile else "",
+                "supervisor": get_name(profile.supervisor_id) if profile else "",
+                "hrManager": get_name(profile.hr_manager_id) if profile else "",
+                "profileImage": profile.profile_image if profile else ""
+            },
+            "education": {
+                "institution": profile.institution if profile else "",
+                "eduStartDate": profile.edu_start_date.strftime('%d/%m/%Y') if profile and profile.edu_start_date else "N/A",
+                "eduEndDate": profile.edu_end_date.strftime('%d/%m/%Y') if profile and profile.edu_end_date else "N/A",
+                "qualification": profile.qualification if profile else "",
+                "specialization": profile.specialization if profile else "",
+                "skills": profile.skills.split(',') if profile and profile.skills else [],
+                "portfolio": profile.portfolio if profile else ""
+            },
+            "experience": {
+                "company": profile.prev_company if profile else "",
+                "jobTitle": profile.prev_job_title if profile else "",
+                "expStartDate": profile.exp_start_date.strftime('%d/%m/%Y') if profile and profile.exp_start_date else "N/A",
+                "expEndDate": profile.exp_end_date.strftime('%d/%m/%Y') if profile and profile.exp_end_date else "N/A",
+                "responsibilities": profile.responsibilities if profile else "",
+                "totalYears": str(profile.total_experience_years) if profile and profile.total_experience_years else ""
+            },
+            "bank": {
+                "bankName": profile.bank_name if profile else "",
+                "branch": profile.bank_branch if profile else "",
+                "accountNumber": profile.account_number if profile else "",
+                "ifsc": profile.ifsc_code if profile else "",
+                "aadhaar": profile.aadhaar_number if profile else "",
+                "pan": profile.pan_number if profile else ""
+            },
+            "documents": []
+        }
+        return jsonify(result), 200
+    except Exception as e:
+        print(f"Error in get_admin_profile: {str(e)}")
+        return jsonify({"message": f"Error: {str(e)}"}), 500
     finally:
         db.close()
 
@@ -2379,6 +2693,48 @@ def get_regularization_approval():
     except Exception as e:
         print(f"Regularization approval error: {str(e)}")
         return jsonify([]), 200
+    finally:
+        db.close()
+
+
+@app.route('/api/admin/regularization/<int:request_id>', methods=['PUT', 'PATCH', 'OPTIONS'])
+@custom_admin_required()
+def update_regularization_status(request_id):
+    """Update regularization status (Approve/Reject)"""
+    data = request.get_json() or {}
+    status = data.get('status', '').lower()
+    reason = data.get('reason', '')
+    approver_id = request.headers.get('X-User-ID')
+    
+    if status not in ['approved', 'rejected']:
+        return jsonify({"message": "Invalid status"}), 400
+        
+    db = SessionLocal()
+    try:
+        req = db.query(Regularization).filter(Regularization.id == request_id).first()
+        if not req:
+            return jsonify({"message": "Request not found"}), 404
+            
+        req.status = status
+        if status == 'approved':
+            req.approval_reason = reason
+        else:
+            req.rejection_reason = reason
+
+        if approver_id:
+            try:
+                req.approved_by = int(approver_id)
+            except ValueError:
+                pass
+        req.approval_date = datetime.utcnow()
+        db.commit()
+        
+        return jsonify({"message": f"Regularization {status} successfully"}), 200
+        
+    except Exception as e:
+        db.rollback()
+        print(f"Error updating regularization: {str(e)}")
+        return jsonify({"message": str(e)}), 500
     finally:
         db.close()
 
@@ -3460,8 +3816,15 @@ def get_broadcasts():
             result.append({
                 "id": b.id,
                 "title": b.title,
+                "eventName": b.event_name or b.title,
+                "event_date": b.event_date.strftime('%Y-%m-%d') if b.event_date else None,
+                "event_time": b.event_time,
+                "event_type": b.event_type,
                 "message": b.message,
                 "target_audience": b.target_audience,
+                "author_name": b.author_name,
+                "author_email": b.author_email,
+                "author_designation": b.author_designation,
                 "created_at": b.created_at.isoformat() if b.created_at else None
             })
         return jsonify(result), 200
@@ -3522,6 +3885,66 @@ def create_broadcast():
         db.close()
 
 
+# ==========================================================
+# ADD NEW ANNOUNCEMENT
+# ==========================================================
+
+@app.route('/api/admin/announcements', methods=['POST'])
+def add_announcement():
+    db = SessionLocal()
+    try:
+        data = request.get_json()
+
+        new_announcement = Announcement(
+            title=data.get("title"),
+            message=data.get("message"),
+            target_audience=data.get("target_audience", "all"),
+            is_active=data.get("is_active", True)
+        )
+
+        db.add(new_announcement)
+        db.commit()
+
+        return jsonify({
+            "message": "Announcement created successfully"
+        }), 201
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({"message": str(e)}), 500
+    finally:
+        db.close()
+
+# ==========================================================
+# GET ALL ANNOUNCEMENTS
+# ==========================================================
+
+@app.route('/api/admin/announcements', methods=['GET'])
+def get_all_announcements():
+    db = SessionLocal()
+    try:
+        announcements = db.query(Announcement).order_by(
+            Announcement.created_at.desc()
+        ).all()
+
+        result = []
+        for a in announcements:
+            result.append({
+                "id": a.id,
+                "title": a.title,
+                "message": a.message,
+                "target_audience": a.target_audience,
+                "is_active": a.is_active,
+                "created_at": a.created_at.strftime("%d %b %Y %H:%M")
+            })
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        return jsonify({"message": str(e)}), 500
+    finally:
+        db.close()
+
 # Run the Flask application
 if __name__ == '__main__':
     # Print startup info
@@ -3548,4 +3971,4 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5001))
     print(f"\nStarting Flask server on http://0.0.0.0:{port}")
     print("CORS is enabled for all endpoints\n")
-    app.run(debug=False, host='0.0.0.0', port=port)
+    app.run(host="0.0.0.0", port=5001, debug=True, use_reloader=False)
