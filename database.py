@@ -230,15 +230,11 @@ class Regularization(Base):
     request_date = Column(DateTime, default=datetime.utcnow)
     approved_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'))
     approval_date = Column(DateTime)
-<<<<<<< HEAD
     approval_reason = Column(Text)
     rejection_reason = Column(Text)
-=======
-    rejection_reason = Column(Text)  # NEW: for storing rejection reason
-    # NEW: Approver workflow fields
+    # Approver workflow fields
     approver_type = Column(String(20), default='admin')  # 'admin' or 'manager'
     designated_approver_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
->>>>>>> main
     
     user = relationship("User", foreign_keys=[user_id])
     approver = relationship("User", foreign_keys=[approved_by])
