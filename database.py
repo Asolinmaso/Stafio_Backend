@@ -214,7 +214,19 @@ class Attendance(Base):
     __table_args__ = (
         UniqueConstraint('user_id', 'date', name='unique_attendance'),
     )
+    
+#Calculating breaks
+class BreakSession(Base):
+    __tablename__ = 'break_sessions'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    date = Column(Date, nullable=False)
+    break_start = Column(DateTime, nullable=False)
+    break_end = Column(DateTime)
+    break_minutes = Column(Integer, default=0)
 
+    user = relationship("User")
 
 # Regularization Requests
 class Regularization(Base):
@@ -230,8 +242,9 @@ class Regularization(Base):
     request_date = Column(DateTime, default=datetime.utcnow)
     approved_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'))
     approval_date = Column(DateTime)
-    rejection_reason = Column(Text)  # NEW: for storing rejection reason
-    # NEW: Approver workflow fields
+    approval_reason = Column(Text)
+    rejection_reason = Column(Text)
+    # Approver workflow fields
     approver_type = Column(String(20), default='admin')  # 'admin' or 'manager'
     designated_approver_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     
@@ -446,11 +459,11 @@ class Notification(Base):
 
 
 class Broadcast(Base):
-    """Admin broadcast messages"""
+    """Admin broadcast messages / Announcements"""
     __tablename__ = 'broadcasts'
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    title = Column(String(200), nullable=False)
+    title = Column(String(200), nullable=True)  # Mapping to Event Name
     message = Column(Text, nullable=False)
     sent_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'))
     target_audience = Column(String(50), default='all')  # all, employees, admins
@@ -458,7 +471,45 @@ class Broadcast(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=True)
     
-    sender = relationship("User")
+    # New fields from Add Announcement Form (Image 3)
+    event_date = Column(Date, nullable=True)
+    event_name = Column(String(200), nullable=True)
+    event_time = Column(String(50), nullable=True)
+    event_type = Column(String(50), nullable=True)  # Birthday, Event, Holiday, etc.
+    image_url = Column(String(500), nullable=True)
+    mentioned_employee_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    
+    # Author details (Manual entry fields from form)
+    author_name = Column(String(100), nullable=True)
+    author_email = Column(String(100), nullable=True)
+    author_designation = Column(String(100), nullable=True)
+    
+    # Engagement stats
+    reactions_count = Column(Integer, default=0)
+    
+    # Relationships
+    sender = relationship("User", foreign_keys=[sent_by])
+    mentioned_employee = relationship("User", foreign_keys=[mentioned_employee_id])
+    reactions = relationship("BroadcastReaction", back_populates="broadcast", cascade="all, delete-orphan")
+
+
+class BroadcastReaction(Base):
+    """User reactions to broadcasts/announcements"""
+    __tablename__ = 'broadcast_reactions'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    broadcast_id = Column(Integer, ForeignKey('broadcasts.id', ondelete='CASCADE'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    reaction_type = Column(String(20), default='like')  # like, celebrate, love, etc.
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    broadcast = relationship("Broadcast", back_populates="reactions")
+    user = relationship("User")
+
+
+# Aliases
+Announcement = Broadcast
 
 
 # Create all tables
