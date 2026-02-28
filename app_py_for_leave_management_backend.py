@@ -152,7 +152,6 @@ register_regularization_approval_endpoints(app)
 def hello_world():
     return 'Hello, World! Welcome to Leave Management Backend!'
 
-<<<<<<< HEAD
 @app.route('/admin_dashboard')
 def admin_dashboard():
     """Get admin dashboard statistics"""
@@ -215,9 +214,6 @@ def admin_dashboard():
         }), 200
     finally:
         db.close()
-=======
-
->>>>>>> main
 
 @app.route('/api/attendance/start-break', methods=['POST'])
 def start_break():
