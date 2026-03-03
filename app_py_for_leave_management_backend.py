@@ -2232,83 +2232,7 @@ def update_employee(user_id):
         db.close()
 
 
-@app.route('/admin_profile/<int:user_id>', methods=['GET'])
-def get_admin_profile(user_id):
-    """Get full employee profile data (Admin view)"""
-    db = SessionLocal()
-    try:
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            return jsonify({"message": "User not found"}), 404
-            
-        profile = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user_id).first()
-        
-        # Helper for names
-        def get_name(u_id):
-            if not u_id: return ""
-            u = db.query(User).filter(User.id == u_id).first()
-            return f"{u.first_name or ''} {u.last_name or ''}".strip() or u.username if u else ""
 
-        from datetime import datetime
-        # Format data to match frontend's expected structure
-        result = {
-            "profile": {
-                "user_id": user.id,
-                "name": f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username,
-                "first_name": user.first_name or "",
-                "last_name": user.last_name or "",
-                "email": user.email or "",
-                "phone": user.phone or "",
-                "empId": profile.emp_id if profile else "",
-                "position": profile.position if profile else "",
-                "empType": profile.emp_type if profile else "",
-                "department": profile.department if profile else "",
-                "status": profile.status if profile else "Active",
-                "gender": profile.gender if profile else "",
-                "dob": profile.dob.strftime('%d/%m/%Y') if profile and profile.dob else "Not Set",
-                "bloodGroup": profile.blood_group if profile else "",
-                "maritalStatus": profile.marital_status if profile else "",
-                "address": profile.address if profile else "",
-                "location": profile.location if profile else "",
-                "emergencyContactNumber": profile.emergency_contact if profile else "",
-                "relationship": profile.emergency_relationship if profile else "",
-                "supervisor": get_name(profile.supervisor_id) if profile else "",
-                "hrManager": get_name(profile.hr_manager_id) if profile else "",
-                "profileImage": profile.profile_image if profile else ""
-            },
-            "education": {
-                "institution": profile.institution if profile else "",
-                "eduStartDate": profile.edu_start_date.strftime('%d/%m/%Y') if profile and profile.edu_start_date else "N/A",
-                "eduEndDate": profile.edu_end_date.strftime('%d/%m/%Y') if profile and profile.edu_end_date else "N/A",
-                "qualification": profile.qualification if profile else "",
-                "specialization": profile.specialization if profile else "",
-                "skills": profile.skills.split(',') if profile and profile.skills else [],
-                "portfolio": profile.portfolio if profile else ""
-            },
-            "experience": {
-                "company": profile.prev_company if profile else "",
-                "jobTitle": profile.prev_job_title if profile else "",
-                "expStartDate": profile.exp_start_date.strftime('%d/%m/%Y') if profile and profile.exp_start_date else "N/A",
-                "expEndDate": profile.exp_end_date.strftime('%d/%m/%Y') if profile and profile.exp_end_date else "N/A",
-                "responsibilities": profile.responsibilities if profile else "",
-                "totalYears": str(profile.total_experience_years) if profile and profile.total_experience_years else ""
-            },
-            "bank": {
-                "bankName": profile.bank_name if profile else "",
-                "branch": profile.bank_branch if profile else "",
-                "accountNumber": profile.account_number if profile else "",
-                "ifsc": profile.ifsc_code if profile else "",
-                "aadhaar": profile.aadhaar_number if profile else "",
-                "pan": profile.pan_number if profile else ""
-            },
-            "documents": []
-        }
-        return jsonify(result), 200
-    except Exception as e:
-        print(f"Error in get_admin_profile: {str(e)}")
-        return jsonify({"message": f"Error: {str(e)}"}), 500
-    finally:
-        db.close()
 
 
 # datas for attendance page in admin section
@@ -2546,8 +2470,47 @@ def get_my_team_la():
         member_ids = [tm.member_id for tm in team_members]
         
         if not member_ids:
-            # If no team members defined, return empty or all employees if admin
-            return jsonify([]), 200
+            # If no team members defined, return all leave requests for admin
+            user_role = request.headers.get('X-User-Role', '')
+            if user_role == 'admin':
+                # Admin sees all leave requests
+                requests_data = db.query(LeaveRequest, User, LeaveType).join(
+                    User, LeaveRequest.user_id == User.id
+                ).join(
+                    LeaveType, LeaveRequest.leave_type_id == LeaveType.id
+                ).order_by(LeaveRequest.applied_date.desc()).all()
+                
+                my_team_la = []
+                for idx, (req, user, leave_type) in enumerate(requests_data, 1):
+                    profile = db.query(EmployeeProfile).filter(
+                        EmployeeProfile.user_id == user.id
+                    ).first()
+                    
+                    name = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username
+                    emp_id = profile.emp_id if profile and profile.emp_id else str(user.id)
+                    image = profile.profile_image if profile and profile.profile_image else f"https://i.pravatar.cc/40?u={user.id}"
+                    
+                    my_team_la.append({
+                        "id": req.id,
+                        "name": name,
+                        "empId": emp_id,
+                        "type": leave_type.name,
+                        "from": req.start_date.strftime('%d-%m-%Y'),
+                        "to": req.end_date.strftime('%d-%m-%Y'),
+                        "days": f"{req.num_days} Day(s)",
+                        "session": "Full Day",
+                        "date": f"{req.start_date.strftime('%d-%m-%Y')}/Full Day",
+                        "request": req.applied_date.strftime('%d-%m-%Y') if req.applied_date else "",
+                        "notify": "HR Head",
+                        "document": "",
+                        "reason": req.reason or "",
+                        "status": req.status.capitalize() if req.status else "Pending",
+                        "image": image
+                    })
+                
+                return jsonify(my_team_la), 200
+            else:
+                return jsonify([]), 200
         
         # Get leave requests for team members
         requests_data = db.query(LeaveRequest, User, LeaveType).join(

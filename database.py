@@ -156,6 +156,7 @@ class EmployeeProfile(Base):
     emergency_contact = Column(String(20))
     emergency_relationship = Column(String(50))
     emp_type = Column(String(50))  # Full-time, Part-time, Contract
+    joining_date = Column(Date)
     department = Column(String(50))
     position = Column(String(50))
     location = Column(String(100))
