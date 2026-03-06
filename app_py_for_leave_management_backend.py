@@ -1882,40 +1882,144 @@ def delete_regularization(reg_id):
 
 @app.route('/api/myholidays', methods=['GET'])
 def get_holidays():
-    """Get holidays from database"""
+    """Get holidays from database merged with Indian national/government holidays"""
     db = SessionLocal()
     try:
-        current_year = datetime.now().year
-        holidays = db.query(Holiday).filter(
+        year_param = request.args.get('year')
+        current_year = int(year_param) if year_param else datetime.now().year
+
+        # ── 1. Comprehensive Indian Government / National Observance Days ──
+        #    (Gazetted + widely observed days for the current year)
+        NATIONAL_HOLIDAYS = [
+            # JANUARY
+            {"date": f"{current_year}-01-01",  "title": "New Year's Day",      "type": "National"},
+            {"date": f"{current_year}-01-14",  "title": "Pongal / Makar Sankranti", "type": "National"},
+            {"date": f"{current_year}-01-15",  "title": "Army Day",            "type": "Observance"},
+            {"date": f"{current_year}-01-23",  "title": "Netaji Subhas Chandra Bose Jayanti", "type": "National"},
+            {"date": f"{current_year}-01-24",  "title": "National Girl Child Day", "type": "Observance"},
+            {"date": f"{current_year}-01-25",  "title": "National Voters' Day","type": "Observance"},
+            {"date": f"{current_year}-01-26",  "title": "Republic Day",        "type": "National"},
+            {"date": f"{current_year}-01-30",  "title": "Martyrs' Day (Mahatma Gandhi)", "type": "National"},
+            # FEBRUARY
+            {"date": f"{current_year}-02-04",  "title": "World Cancer Day",    "type": "Observance"},
+            {"date": f"{current_year}-02-14",  "title": "Valentine's Day",     "type": "Observance"},
+            {"date": f"{current_year}-02-19",  "title": "Chhatrapati Shivaji Maharaj Jayanti", "type": "National"},
+            {"date": f"{current_year}-02-20",  "title": "Arunachal Pradesh Statehood Day", "type": "Observance"},
+            {"date": f"{current_year}-02-28",  "title": "National Science Day", "type": "Observance"},
+            # MARCH
+            {"date": f"{current_year}-03-01",  "title": "Holi",               "type": "National"},
+            {"date": f"{current_year}-03-04",  "title": "Maha Shivaratri",     "type": "National"},
+            {"date": f"{current_year}-03-08",  "title": "International Women's Day", "type": "Observance"},
+            {"date": f"{current_year}-03-15",  "title": "World Consumer Rights Day", "type": "Observance"},
+            {"date": f"{current_year}-03-22",  "title": "Bihar Diwas / World Water Day", "type": "Observance"},
+            {"date": f"{current_year}-03-30",  "title": "Ram Navami",          "type": "National"},
+            # APRIL
+            {"date": f"{current_year}-04-03",  "title": "Good Friday",         "type": "National"},
+            {"date": f"{current_year}-04-05",  "title": "Easter Saturday",     "type": "Observance"},
+            {"date": f"{current_year}-04-06",  "title": "Mahavir Jayanti",     "type": "National"},
+            {"date": f"{current_year}-04-07",  "title": "World Health Day",    "type": "Observance"},
+            {"date": f"{current_year}-04-14",  "title": "Dr. B.R. Ambedkar Jayanti / Tamil New Year", "type": "National"},
+            {"date": f"{current_year}-04-22",  "title": "Earth Day",           "type": "Observance"},
+            # MAY
+            {"date": f"{current_year}-05-01",  "title": "International Labour Day / Maharashtra Day", "type": "National"},
+            {"date": f"{current_year}-05-07",  "title": "Rabindranath Tagore Jayanti", "type": "National"},
+            {"date": f"{current_year}-05-11",  "title": "National Technology Day", "type": "Observance"},
+            {"date": f"{current_year}-05-12",  "title": "International Nurses Day", "type": "Observance"},
+            {"date": f"{current_year}-05-31",  "title": "World No Tobacco Day", "type": "Observance"},
+            # JUNE
+            {"date": f"{current_year}-06-01",  "title": "World Milk Day",      "type": "Observance"},
+            {"date": f"{current_year}-06-05",  "title": "World Environment Day", "type": "Observance"},
+            {"date": f"{current_year}-06-21",  "title": "International Yoga Day", "type": "National"},
+            {"date": f"{current_year}-06-23",  "title": "Rath Yatra",          "type": "National"},
+            # JULY
+            {"date": f"{current_year}-07-01",  "title": "National Doctor's Day / Chartered Accountants Day", "type": "Observance"},
+            {"date": f"{current_year}-07-11",  "title": "World Population Day", "type": "Observance"},
+            {"date": f"{current_year}-07-18",  "title": "Nelson Mandela International Day", "type": "Observance"},
+            {"date": f"{current_year}-07-26",  "title": "Kargil Vijay Diwas",  "type": "National"},
+            # AUGUST
+            {"date": f"{current_year}-08-09",  "title": "Quit India Movement Day / Nagasaki Day", "type": "National"},
+            {"date": f"{current_year}-08-12",  "title": "International Youth Day", "type": "Observance"},
+            {"date": f"{current_year}-08-15",  "title": "Independence Day",    "type": "National"},
+            {"date": f"{current_year}-08-19",  "title": "Janmashtami",         "type": "National"},
+            {"date": f"{current_year}-08-29",  "title": "National Sports Day (Dhyan Chand Jayanti)", "type": "National"},
+            # SEPTEMBER
+            {"date": f"{current_year}-09-02",  "title": "Onam",               "type": "National"},
+            {"date": f"{current_year}-09-05",  "title": "Teachers' Day (Dr. Radhakrishnan Jayanti)", "type": "National"},
+            {"date": f"{current_year}-09-08",  "title": "International Literacy Day", "type": "Observance"},
+            {"date": f"{current_year}-09-14",  "title": "Hindi Diwas",         "type": "National"},
+            {"date": f"{current_year}-09-16",  "title": "Ganesh Chaturthi",    "type": "National"},
+            {"date": f"{current_year}-09-25",  "title": "Antyodaya Diwas (Deendayal Upadhyaya Jayanti)", "type": "Observance"},
+            # OCTOBER
+            {"date": f"{current_year}-10-02",  "title": "Gandhi Jayanti / Lal Bahadur Shastri Jayanti", "type": "National"},
+            {"date": f"{current_year}-10-08",  "title": "Indian Air Force Day", "type": "National"},
+            {"date": f"{current_year}-10-11",  "title": "Navratri Begins / Durga Puja",     "type": "National"},
+            {"date": f"{current_year}-10-16",  "title": "World Food Day",      "type": "Observance"},
+            {"date": f"{current_year}-10-19",  "title": "Ayudha Puja / Maha Navami", "type": "National"},
+            {"date": f"{current_year}-10-20",  "title": "Dussehra / Vijayadasami / Saraswati Puja", "type": "National"},
+            {"date": f"{current_year}-10-31",  "title": "Sardar Vallabhbhai Patel Jayanti / National Unity Day", "type": "National"},
+            # NOVEMBER
+            {"date": f"{current_year}-11-08",  "title": "Diwali",             "type": "National"},
+            {"date": f"{current_year}-11-09",  "title": "Bhai Dooj",          "type": "National"},
+            {"date": f"{current_year}-11-14",  "title": "Children's Day (Nehru Jayanti)", "type": "National"},
+            {"date": f"{current_year}-11-17",  "title": "Guru Nanak Jayanti", "type": "National"},
+            {"date": f"{current_year}-11-19",  "title": "National Integration Day", "type": "Observance"},
+            {"date": f"{current_year}-11-26",  "title": "Constitution Day (Samvidhan Diwas)", "type": "National"},
+            # DECEMBER
+            {"date": f"{current_year}-12-01",  "title": "World AIDS Day",     "type": "Observance"},
+            {"date": f"{current_year}-12-04",  "title": "Indian Navy Day",    "type": "National"},
+            {"date": f"{current_year}-12-10",  "title": "Human Rights Day",   "type": "Observance"},
+            {"date": f"{current_year}-12-16",  "title": "Vijay Diwas (1971 War Victory)", "type": "National"},
+            {"date": f"{current_year}-12-19",  "title": "Goa Liberation Day", "type": "Observance"},
+            {"date": f"{current_year}-12-22",  "title": "National Mathematics Day (Ramanujan Jayanti)", "type": "Observance"},
+            {"date": f"{current_year}-12-23",  "title": "Kisan Diwas (National Farmers Day)", "type": "National"},
+            {"date": f"{current_year}-12-25",  "title": "Christmas Day",      "type": "National"},
+        ]
+
+        # Build a date→national_holiday map
+        national_map = {}
+        for idx, nh in enumerate(NATIONAL_HOLIDAYS):
+            try:
+                d = datetime.strptime(nh["date"], "%Y-%m-%d").date()
+                national_map[nh["date"]] = {
+                    "id": f"nat-{idx}",
+                    "date": d.strftime('%d %B, %A'),
+                    "full_date": nh["date"],
+                    "title": nh["title"],
+                    "type": nh["type"],
+                    "source": "national"
+                }
+            except Exception:
+                pass
+
+        # ── 2. Custom holidays from database ──
+        db_holidays = db.query(Holiday).filter(
             Holiday.year == current_year
         ).order_by(Holiday.date).all()
-        
-        holiday_data = []
-        for h in holidays:
-            # Format date like "01 January, Wednesday"
-            date_str = h.date.strftime('%d %B, %A')
+
+        db_map = {}
+        for h in db_holidays:
+            date_key = h.date.isoformat()
             holiday_type = "Restricted" if h.is_optional else "Mandatory"
-            holiday_data.append({
+            db_map[date_key] = {
                 "id": h.id,
-                "date": date_str,
+                "date": h.date.strftime('%d %B, %A'),
+                "full_date": date_key,
                 "title": h.title,
-                "type": holiday_type
-            })
-        
-        # If no holidays in DB, provide default list
-        if not holiday_data:
-            holiday_data = [
-                {"id": 1, "date": "01 January, Wednesday", "title": "New Year's Day"},
-                {"id": 2, "date": "26 January, Sunday", "title": "Republic Day"},
-                {"id": 3, "date": "15 August, Friday", "title": "Independence Day"},
-                {"id": 4, "date": "02 October, Thursday", "title": "Gandhi Jayanti"},
-                {"id": 5, "date": "25 December, Thursday", "title": "Christmas Day"},
-            ]
-        
+                "type": holiday_type,
+                "source": "custom"
+            }
+
+        # ── 3. Merge: DB custom holidays override national ones on same date ──
+        merged = dict(national_map)
+        merged.update(db_map)
+
+        # Sort by date
+        holiday_data = sorted(merged.values(), key=lambda x: x["full_date"])
+
         return jsonify(holiday_data), 200
-        
+
     except Exception as e:
-        print(f"Holidays error: {str(e)}")
+        print(f"Holidays error: {str(e)}") 
         return jsonify([]), 200
     finally:
         db.close()
