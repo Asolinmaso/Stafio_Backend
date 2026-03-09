@@ -8,6 +8,7 @@ from functools import wraps
 from datetime import datetime
 from sqlalchemy.exc import IntegrityError
 import json
+from auth import jwt_required, role_required, permission_required
 
 # Create Blueprint for admin endpoints
 admin_bp = Blueprint('admin_endpoints', __name__)
@@ -18,13 +19,12 @@ admin_bp = Blueprint('admin_endpoints', __name__)
 # ============================================================================
 
 def admin_required():
-    """Decorator to require admin role for endpoints"""
+    """Decorator to require admin role for endpoints (JWT-based)"""
     def decorator(f):
         @wraps(f)
+        @jwt_required()
+        @role_required('admin')
         def decorated_function(*args, **kwargs):
-            user_role = request.headers.get('X-User-Role', 'employee')
-            if user_role != 'admin':
-                return jsonify({"message": "Admin access required"}), 403
             return f(*args, **kwargs)
         return decorated_function
     return decorator

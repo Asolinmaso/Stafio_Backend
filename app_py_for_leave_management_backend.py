@@ -23,8 +23,12 @@ from database import (
     Holiday, Department, TeamMember,
     # New modules
     SalaryStructure, Payroll, Task, PerformanceReview,
-    Document, SystemSettings, Notification, Broadcast,BreakSession,
-    Announcement
+    Document, SystemSettings, Notification, Broadcast, BreakSession,
+    Announcement, BlacklistedToken
+)
+from auth import (
+    generate_tokens, verify_token, blacklist_token,
+    refresh_access_token, jwt_required, role_required, permission_required
 )
 
 # Create a Flask application instance
@@ -55,7 +59,7 @@ def add_cors_headers(response):
         response.headers['Access-Control-Allow-Credentials'] = 'false'
 
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-User-Role, X-User-ID'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-User-Role, X-User-ID, X-User-Role'
     return response
 
 @app.before_request
@@ -112,31 +116,20 @@ def send_email(to_email, subject, body):
 # Database tables will be initialized when app starts
 
 
-# --- CUSTOM, TEMPORARY INSECURE DECORATORS ---
+# --- AUTH DECORATORS (from auth.py) ---
+# jwt_required, role_required, permission_required are imported from auth.py
+# Keeping custom_admin_required as a wrapper for backward compat with admin_leave_workflow_endpoints
 def custom_admin_required():
+    """Backward-compatible wrapper that uses JWT auth internally"""
     def wrapper(fn):
         @wraps(fn)
+        @jwt_required()
+        @role_required('admin')
         def decorator(*args, **kwargs):
-            if request.headers.get('X-User-Role') == 'admin':
-                return fn(*args, **kwargs)
-            else:
-                return jsonify({"message": "Admin access required"}), 403
+            return fn(*args, **kwargs)
         return decorator
     return wrapper
-
-def custom_user_required():
-    def wrapper(fn):
-        @wraps(fn)
-        def decorator(*args, **kwargs):
-            user_id = request.headers.get('X-User-ID')
-            if user_id:
-                request.current_user_id = int(user_id)
-                return fn(*args, **kwargs)
-            else:
-                return jsonify({"message": "Authentication required"}), 401
-        return decorator
-    return wrapper
-# --- END TEMPORARY DECORATORS ---
+# --- END AUTH DECORATORS ---
 
 # Now register the admin workflow endpoints (needs custom_admin_required decorator)
 register_admin_workflow_endpoints(app, custom_admin_required)
@@ -788,11 +781,13 @@ def google_login():
         user = db.query(User).filter(User.email == email).first()
 
         if user:
+            tokens = generate_tokens(user.id, user.role)
             return jsonify({
                 "user_id": user.id,
                 "username": user.username,
                 "role": user.role,
-                "email": user.email
+                "email": user.email,
+                **tokens
             }), 200
 
         # Create new user (Google user → no password)
@@ -818,11 +813,13 @@ def google_login():
         db.commit()
         db.refresh(new_user)
 
+        tokens = generate_tokens(new_user.id, new_user.role)
         return jsonify({
             "user_id": new_user.id,
             "username": new_user.username,
             "role": new_user.role,
-            "email": new_user.email
+            "email": new_user.email,
+            **tokens
         }), 201
 
     except Exception as e:
@@ -853,7 +850,11 @@ def employee_login():
         ).first()
 
         if user and check_password_hash(user.password_hash, password):
-            return jsonify(user_id=user.id, role=user.role, username=user.username,email=user.email), 200
+            tokens = generate_tokens(user.id, user.role)
+            return jsonify(
+                user_id=user.id, role=user.role, username=user.username, email=user.email,
+                access_token=tokens['access_token'], refresh_token=tokens['refresh_token']
+            ), 200
         else:
             return jsonify({"message": "Invalid employee username/email or password."}), 401
     except Exception as e:
@@ -914,11 +915,13 @@ def admin_google_login():
                 "message": "This email is not present in the database"
             }), 403
         
+        tokens = generate_tokens(user.id, user.role)
         return jsonify({
             "user_id": user.id,
             "username": user.username,
             "role": user.role,
-            "email": user.email
+            "email": user.email,
+            **tokens
         }), 200
     
 
@@ -978,11 +981,13 @@ def employee_google_login():
 
         # EXISTING EMPLOYEE
         if user:
+            tokens = generate_tokens(user.id, user.role)
             return jsonify({
                 "user_id": user.id,
                 "username": user.username,
                 "role": user.role,
                 "email": user.email,
+                **tokens
             }), 200
 
         # 🆕 Create new employee
@@ -1008,11 +1013,13 @@ def employee_google_login():
         db.commit()
         db.refresh(new_user)
 
+        tokens = generate_tokens(new_user.id, new_user.role)
         return jsonify({
             "user_id": new_user.id,
             "username": new_user.username,
             "role": new_user.role,
-            "email": new_user.email
+            "email": new_user.email,
+            **tokens
         }), 201
 
          
@@ -1046,7 +1053,11 @@ def admin_login():
         ).first()
 
         if user and check_password_hash(user.password_hash, password):
-            return jsonify(user_id=user.id, role=user.role, username=user.username,email=user.email), 200
+            tokens = generate_tokens(user.id, user.role)
+            return jsonify(
+                user_id=user.id, role=user.role, username=user.username, email=user.email,
+                access_token=tokens['access_token'], refresh_token=tokens['refresh_token']
+            ), 200
         else:
             return jsonify({"message": "Invalid admin username/email or password."}), 401
     except Exception as e:
@@ -1056,12 +1067,12 @@ def admin_login():
         if db:
             db.close()
 
-# --- PROTECTED ROUTE (NOW USES TEMPORARY DECORATOR) ---
+# --- PROTECTED ROUTE (JWT PROTECTED) ---
 @app.route('/protected', methods=['GET'])
-@custom_user_required()
+@jwt_required()
 def protected():
-    user_id = request.headers.get('X-User-ID')
-    return jsonify(logged_in_as={'id': user_id, 'message': 'You have accessed a protected route with a custom header'}), 200
+    user_id = request.user_id
+    return jsonify(logged_in_as={'id': user_id, 'message': 'You have accessed a protected route'}), 200
 # --- END PROTECTED ROUTE ---
 
 
@@ -2807,14 +2818,14 @@ def get_admin_profile_data(user_id):
 
 # --- Employee Profile Endpoint ---
 @app.route('/employee_profile/<int:user_id>', methods=['GET'])
-@custom_user_required()
+@jwt_required()
 def get_employee_profile_data(user_id):
     """
     Returns employee profile data for the specified user from database.
     """
     # Check if the requesting user is accessing their own profile
-    current_user_id = request.current_user_id
-    if current_user_id != user_id and request.headers.get('X-User-Role') != 'admin':
+    current_user_id = request.user_id
+    if current_user_id != user_id and request.user_role != 'admin':
         return jsonify({"message": "Unauthorized to view this profile."}), 403
     
     db = None
@@ -2825,54 +2836,79 @@ def get_employee_profile_data(user_id):
         if not user:
             return jsonify({"message": "User not found"}), 404
         
-        # Return only data from database, empty strings for fields not in database
+        # Fetch employee profile data from database
+        emp_profile = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user_id).first()
+        
+        # Parse skills from JSON string if stored
+        skills_list = emp_profile.skills if emp_profile and emp_profile.skills else ""
+        
+        # Get supervisor name
+        supervisor_name = ""
+        if emp_profile and emp_profile.supervisor:
+            supervisor_user = emp_profile.supervisor
+            supervisor_name = (
+                f"{supervisor_user.first_name or ''} {supervisor_user.last_name or ''}"
+            ).strip() or supervisor_user.username
+
+        # Get HR manager name
+        hr_manager_name = ""
+        if emp_profile and emp_profile.hr_manager:
+            hr_user = emp_profile.hr_manager
+            hr_manager_name = (
+                f"{hr_user.first_name or ''} {hr_user.last_name or ''}"
+            ).strip() or hr_user.username
+        
+        # Return data from database
         employee_profile_data = {
             "profile": {
-                "profileImage": "",
+                "profileImage": emp_profile.profile_image if emp_profile and emp_profile.profile_image else "",
                 "name": f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username,
-                "gender": "",
-                "dob": "",
-                "maritalStatus": "",
-                "nationality": "",
-                "bloodGroup": "",
+                "gender": emp_profile.gender if emp_profile and emp_profile.gender else "",
+                "dob": emp_profile.dob.strftime('%Y-%m-%d') if emp_profile and emp_profile.dob else "",
+                "maritalStatus": emp_profile.marital_status if emp_profile and emp_profile.marital_status else "",
+                "nationality": emp_profile.nationality if emp_profile and emp_profile.nationality else "",
+                "bloodGroup": emp_profile.blood_group if emp_profile and emp_profile.blood_group else "",
                 "email": user.email or "",
-                "phone": "",
-                "address": "",
-                "emergencyContactNumber": "",
-                "relationship": "",
-                "empType": "",
-                "department": "",
-                "location": "",
-                "supervisor": "",
-                "hrManager": "",
-                "empId": str(user.id) if user.id else "",
-                "status": ""
+                "phone": user.phone or "",
+                "address": emp_profile.address if emp_profile and emp_profile.address else "",
+                "emergencyContactNumber": emp_profile.emergency_contact if emp_profile and emp_profile.emergency_contact else "",
+                "relationship": emp_profile.emergency_relationship if emp_profile and emp_profile.emergency_relationship else "",
+                "empType": emp_profile.emp_type if emp_profile and emp_profile.emp_type else "",
+                "department": emp_profile.department if emp_profile and emp_profile.department else "",
+                "location": emp_profile.location if emp_profile and emp_profile.location else "",
+                "supervisor": supervisor_name,
+                "hrManager": hr_manager_name,
+                "supervisor_id": emp_profile.supervisor_id if emp_profile else None,
+                "hr_manager_id": emp_profile.hr_manager_id if emp_profile else None,
+                "empId": emp_profile.emp_id if emp_profile and emp_profile.emp_id else str(user.id),
+                "status": emp_profile.status if emp_profile and emp_profile.status else "Active",
+                "position": emp_profile.position if emp_profile and emp_profile.position else "",
             },
             "education": {
-                "institution": "",
-                "location": "",
-                "startDate": "",
-                "endDate": "",
-                "qualification": "",
-                "specialization": "",
-                "skills": [],
-                "portfolio": ""
+                "institution": emp_profile.institution if emp_profile and emp_profile.institution else "",
+                "location": emp_profile.edu_location if emp_profile and emp_profile.edu_location else "",
+                "eduStartDate": emp_profile.edu_start_date.strftime('%Y-%m-%d') if emp_profile and emp_profile.edu_start_date else "",
+                "eduEndDate": emp_profile.edu_end_date.strftime('%Y-%m-%d') if emp_profile and emp_profile.edu_end_date else "",
+                "qualification": emp_profile.qualification if emp_profile and emp_profile.qualification else "",
+                "specialization": emp_profile.specialization if emp_profile and emp_profile.specialization else "",
+                "skills": skills_list,
+                "portfolio": emp_profile.portfolio if emp_profile and emp_profile.portfolio else ""
             },
             "experience": {
-                "company": "",
-                "jobTitle": "",
-                "startDate": "",
-                "endDate": "",
-                "responsibilities": "",
-                "totalYears": ""
+                "company": emp_profile.prev_company if emp_profile and emp_profile.prev_company else "",
+                "jobTitle": emp_profile.prev_job_title if emp_profile and emp_profile.prev_job_title else "",
+                "expStartDate": emp_profile.exp_start_date.strftime('%Y-%m-%d') if emp_profile and emp_profile.exp_start_date else "",
+                "expEndDate": emp_profile.exp_end_date.strftime('%Y-%m-%d') if emp_profile and emp_profile.exp_end_date else "",
+                "responsibilities": emp_profile.responsibilities if emp_profile and emp_profile.responsibilities else "",
+                "totalYears": str(emp_profile.total_experience_years) if emp_profile and emp_profile.total_experience_years else ""
             },
             "bank": {
-                "bankName": "",
-                "branch": "",
-                "accountNumber": "",
-                "ifsc": "",
-                "aadhaar": "",
-                "pan": ""
+                "bankName": emp_profile.bank_name if emp_profile and emp_profile.bank_name else "",
+                "branch": emp_profile.bank_branch if emp_profile and emp_profile.bank_branch else "",
+                "accountNumber": emp_profile.account_number if emp_profile and emp_profile.account_number else "",
+                "ifsc": emp_profile.ifsc_code if emp_profile and emp_profile.ifsc_code else "",
+                "aadhaar": emp_profile.aadhaar_number if emp_profile and emp_profile.aadhaar_number else "",
+                "pan": emp_profile.pan_number if emp_profile and emp_profile.pan_number else ""
             },
             "documents": []
         }
@@ -2881,6 +2917,7 @@ def get_employee_profile_data(user_id):
     except Exception as e:
         if db:
             db.rollback()
+        print(f"Error getting employee profile: {str(e)}")
         return jsonify({"message": f"An error occurred: {str(e)}"}), 500
     finally:
         if db:
@@ -3903,6 +3940,64 @@ def get_all_announcements():
         return jsonify({"message": str(e)}), 500
     finally:
         db.close()
+
+# =============================================================================
+# JWT TOKEN ENDPOINTS
+# =============================================================================
+
+@app.route('/api/refresh', methods=['POST'])
+def refresh_token_endpoint():
+    """Refresh an expired access token using a valid refresh token"""
+    data = request.get_json()
+    if not data or not data.get('refresh_token'):
+        return jsonify({"message": "Refresh token is required"}), 400
+    
+    new_access_token, error = refresh_access_token(data['refresh_token'])
+    if error:
+        return jsonify({"message": error}), 401
+    
+    return jsonify({"access_token": new_access_token}), 200
+
+
+@app.route('/api/logout', methods=['POST'])
+def logout_endpoint():
+    """Logout by blacklisting the current access and refresh tokens"""
+    # Blacklist access token from Authorization header
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        access_token = auth_header.split(' ', 1)[1]
+        try:
+            import jwt as pyjwt
+            payload = pyjwt.decode(access_token, options={"verify_exp": False}, algorithms=["HS256"],
+                                   key=os.getenv('JWT_SECRET_KEY', 'stafio_jwt_secret_key_2026_change_in_production'))
+            blacklist_token(
+                jti=payload.get('jti'),
+                token_type='access',
+                user_id=payload.get('user_id'),
+                expires_at=datetime.utcfromtimestamp(payload.get('exp', 0))
+            )
+        except Exception:
+            pass  # If token is already invalid, that's fine
+    
+    # Blacklist refresh token from request body
+    data = request.get_json() or {}
+    refresh_token_str = data.get('refresh_token')
+    if refresh_token_str:
+        try:
+            import jwt as pyjwt
+            payload = pyjwt.decode(refresh_token_str, options={"verify_exp": False}, algorithms=["HS256"],
+                                   key=os.getenv('JWT_SECRET_KEY', 'stafio_jwt_secret_key_2026_change_in_production'))
+            blacklist_token(
+                jti=payload.get('jti'),
+                token_type='refresh',
+                user_id=payload.get('user_id'),
+                expires_at=datetime.utcfromtimestamp(payload.get('exp', 0))
+            )
+        except Exception:
+            pass
+    
+    return jsonify({"message": "Logged out successfully"}), 200
+
 
 # Run the Flask application
 if __name__ == '__main__':
