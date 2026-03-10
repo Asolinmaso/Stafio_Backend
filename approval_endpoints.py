@@ -13,7 +13,7 @@ To integrate: Call register_regularization_approval_endpoints(app) after app ini
 
 from flask import request, jsonify
 from datetime import datetime
-from database import SessionLocal, User, Regularization
+from database import SessionLocal, User, Regularization, Notification
 
 
 def register_regularization_approval_endpoints(app):
@@ -64,6 +64,16 @@ def register_regularization_approval_endpoints(app):
             reg.approved_by = int(approver_id)
             reg.approval_date = datetime.utcnow()
             
+            # Create Notification
+            new_notif = Notification(
+                user_id=reg.user_id,
+                title="Regularization Request Approved",
+                message=f"Your regularization request for {reg.date} has been approved.",
+                notification_type="attendance",
+                link="/employee/attendance"
+            )
+            db.add(new_notif)
+
             db.commit()
             return jsonify({"message": "Regularization approved successfully"}), 200
             
@@ -114,6 +124,16 @@ def register_regularization_approval_endpoints(app):
             reg.rejection_reason = data.get('reason', 'Rejected')
             reg.approved_by = int(approver_id)
             
+            # Create Notification
+            new_notif = Notification(
+                user_id=reg.user_id,
+                title="Regularization Request Rejected",
+                message=f"Your regularization request for {reg.date} has been rejected. Reason: {reg.rejection_reason}",
+                notification_type="attendance",
+                link="/employee/attendance"
+            )
+            db.add(new_notif)
+
             db.commit()
             return jsonify({"message": "Regularization rejected"}), 200
             
