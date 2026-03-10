@@ -8,6 +8,7 @@ from functools import wraps
 from datetime import datetime
 from sqlalchemy.exc import IntegrityError
 import json
+from auth import jwt_required, role_required, permission_required
 
 # Create Blueprint for admin endpoints
 admin_bp = Blueprint('admin_endpoints', __name__)
@@ -18,13 +19,12 @@ admin_bp = Blueprint('admin_endpoints', __name__)
 # ============================================================================
 
 def admin_required():
-    """Decorator to require admin role for endpoints"""
+    """Decorator to require admin role for endpoints (JWT-based)"""
     def decorator(f):
         @wraps(f)
+        @jwt_required()
+        @role_required('admin')
         def decorated_function(*args, **kwargs):
-            user_role = request.headers.get('X-User-Role', 'employee')
-            if user_role != 'admin':
-                return jsonify({"message": "Admin access required"}), 403
             return f(*args, **kwargs)
         return decorated_function
     return decorator
@@ -237,6 +237,7 @@ def get_my_team():
                 "phone": user.phone or "",
                 "department": emp_profile.department if emp_profile and emp_profile.department else "Not Assigned",
                 "position": emp_profile.position if emp_profile and emp_profile.position else emp_profile.emp_type if emp_profile and emp_profile.emp_type else "Not Specified",
+                "joining_date": emp_profile.joining_date if emp_profile and emp_profile.joining_date else "",
                 "status": emp_profile.status if emp_profile and emp_profile.status else "Active"
             })
         
@@ -258,6 +259,7 @@ def get_my_team():
                         "phone": user.phone or "",
                         "department": emp_profile.department if emp_profile and emp_profile.department else "Not Assigned",
                         "position": emp_profile.position if emp_profile and emp_profile.position else emp_profile.emp_type if emp_profile and emp_profile.emp_type else "Not Specified",
+                        "joining_date": emp_profile.joining_date if emp_profile and emp_profile.joining_date else "",
                         "status": emp_profile.status if emp_profile and emp_profile.status else "Active"
                     })
         
@@ -499,58 +501,85 @@ def update_admin_profile(user_id):
         user.phone = profile.get("phone", user.phone)
 
         # ================= PROFILE =================
-        emp_profile.position = profile.get("position")
-        emp_profile.emp_type = profile.get("empType")
-        emp_profile.department = profile.get("department")
-        emp_profile.gender = profile.get("gender")
-        emp_profile.marital_status = profile.get("maritalStatus")
-        emp_profile.blood_group = profile.get("bloodGroup")
-        emp_profile.location = profile.get("location")
-        emp_profile.address = profile.get("address")
-        emp_profile.portfolio = education.get("portfolio")
-        emp_profile.status = profile.get("status")
-        emp_profile.supervisor_id = profile.get("supervisor_id")
-        emp_profile.hr_manager_id = profile.get("hr_manager_id")
+        # Use fallback to existing value so partial updates don't wipe data
+        emp_profile.position = profile.get("position", emp_profile.position)
+        emp_profile.emp_type = profile.get("empType", emp_profile.emp_type)
+        emp_profile.department = profile.get("department", emp_profile.department)
+        emp_profile.gender = profile.get("gender", emp_profile.gender)
+        emp_profile.marital_status = profile.get("maritalStatus", emp_profile.marital_status)
+        emp_profile.blood_group = profile.get("bloodGroup", emp_profile.blood_group)
+        emp_profile.nationality = profile.get("nationality", emp_profile.nationality)
+        emp_profile.location = profile.get("location", emp_profile.location)
+        emp_profile.address = profile.get("address", emp_profile.address)
+        emp_profile.emergency_contact = profile.get("emergencyContactNumber", emp_profile.emergency_contact)
+        emp_profile.emergency_relationship = profile.get("relationship", emp_profile.emergency_relationship)
+        emp_profile.portfolio = education.get("portfolio", emp_profile.portfolio)
+        emp_profile.status = profile.get("status", emp_profile.status)
+        emp_profile.supervisor_id = profile.get("supervisor_id", emp_profile.supervisor_id)
+        emp_profile.hr_manager_id = profile.get("hr_manager_id", emp_profile.hr_manager_id)
 
-        # DOB
+        # DOB — format: YYYY-MM-DD
         dob = profile.get("dob")
         if dob:
-            emp_profile.dob = datetime.strptime(dob, "%Y-%m-%d").date()
+            try:
+                emp_profile.dob = datetime.strptime(dob, "%Y-%m-%d").date()
+            except ValueError:
+                pass  # skip if format is invalid
 
         # ================= EDUCATION =================
-        emp_profile.institution = education.get("institution")
-        emp_profile.qualification = education.get("qualification")
-        emp_profile.specialization = education.get("specialization")
+        emp_profile.institution = education.get("institution", emp_profile.institution)
+        emp_profile.edu_location = education.get("location", emp_profile.edu_location)
+        emp_profile.qualification = education.get("qualification", emp_profile.qualification)
+        emp_profile.specialization = education.get("specialization", emp_profile.specialization)
+        emp_profile.skills = education.get("skills", emp_profile.skills)
 
         edu_start = education.get("eduStartDate")
         edu_end = education.get("eduEndDate")
 
         if edu_start:
-            emp_profile.edu_start_date = datetime.strptime(edu_start, "%Y-%m-%d").date()
+            try:
+                emp_profile.edu_start_date = datetime.strptime(edu_start, "%Y-%m-%d").date()
+            except ValueError:
+                pass
         if edu_end:
-            emp_profile.edu_end_date = datetime.strptime(edu_end, "%Y-%m-%d").date()
+            try:
+                emp_profile.edu_end_date = datetime.strptime(edu_end, "%Y-%m-%d").date()
+            except ValueError:
+                pass
 
         # ================= EXPERIENCE =================
-        emp_profile.prev_company = experience.get("company")
-        emp_profile.prev_job_title = experience.get("jobTitle")
-        emp_profile.responsibilities = experience.get("responsibilities")
+        emp_profile.prev_company = experience.get("company", emp_profile.prev_company)
+        emp_profile.prev_job_title = experience.get("jobTitle", emp_profile.prev_job_title)
+        emp_profile.responsibilities = experience.get("responsibilities", emp_profile.responsibilities)
+        total_years = experience.get("totalYears")
+        if total_years is not None:
+            try:
+                emp_profile.total_experience_years = float(total_years)
+            except (ValueError, TypeError):
+                pass
 
         exp_start = experience.get("expStartDate")
         exp_end = experience.get("expEndDate")
 
         if exp_start and exp_start != "0001-01-01":
-            emp_profile.exp_start_date = datetime.strptime(exp_start, "%Y-%m-%d").date()
+            try:
+                emp_profile.exp_start_date = datetime.strptime(exp_start, "%Y-%m-%d").date()
+            except ValueError:
+                pass
 
         if exp_end and exp_end != "0001-01-01":
-            emp_profile.exp_end_date = datetime.strptime(exp_end, "%Y-%m-%d").date()
+            try:
+                emp_profile.exp_end_date = datetime.strptime(exp_end, "%Y-%m-%d").date()
+            except ValueError:
+                pass
 
         # ================= BANK =================
-        emp_profile.bank_name = bank.get("bankName")
-        emp_profile.bank_branch = bank.get("branch")
-        emp_profile.account_number = bank.get("accountNumber")
-        emp_profile.ifsc_code = bank.get("ifsc")
-        emp_profile.aadhaar_number = bank.get("aadhaar")
-        emp_profile.pan_number = bank.get("pan")
+        emp_profile.bank_name = bank.get("bankName", emp_profile.bank_name)
+        emp_profile.bank_branch = bank.get("branch", emp_profile.bank_branch)
+        emp_profile.account_number = bank.get("accountNumber", emp_profile.account_number)
+        emp_profile.ifsc_code = bank.get("ifsc", emp_profile.ifsc_code)
+        emp_profile.aadhaar_number = bank.get("aadhaar", emp_profile.aadhaar_number)
+        emp_profile.pan_number = bank.get("pan", emp_profile.pan_number)
 
         db.commit()
 
@@ -683,8 +712,8 @@ def get_break_times():
     try:
         # Default break times
         break_times = {
-            'lunch_break': '1:00 PM - 2:00 PM',
-            'coffee_break': '4:00 PM - 4:15 PM',
+            'lunch_break': '1:00 PM - 2:30 PM',
+            'coffee_break': '4:00 PM - 4:30 PM',
             'custom_breaks': []
         }
         
@@ -728,8 +757,8 @@ def update_break_times():
         user_id = request.headers.get('X-User-ID', 1)
         
         break_settings = {
-            'lunch_break': data.get('lunch_break', '1:00 PM - 2:00 PM'),
-            'coffee_break': data.get('coffee_break', '4:00 PM - 4:15 PM')
+            'lunch_break': data.get('lunch_break', '1:00 PM - 2:30 PM'),
+            'coffee_break': data.get('coffee_break', '4:00 PM - 4:30 PM')
         }
         
         # Handle custom breaks as JSON
@@ -1178,6 +1207,7 @@ def add_employee():
             user_id=new_user.id,
             emp_id=employee_id,
             emp_type=data.get('emp_type', 'Full Time'),
+            joining_date=joining_date,
             department=data.get('department'),
             position=data.get('position'),
             supervisor_id=data.get('supervisor_id'),
