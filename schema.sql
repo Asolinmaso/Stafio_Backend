@@ -45,9 +45,9 @@ CREATE TABLE leave_requests (
     end_date DATE NOT NULL,
     num_days INT NOT NULL,
     reason TEXT,
-    status ENUM('pending', 'approved', 'declined') DEFAULT 'pending',
+    status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
     applied_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    approved_by INT, -- ID of the admin who approved/declined
+    approved_by INT, -- ID of the admin who approved/rejected
     approval_date TIMESTAMP NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (leave_type_id) REFERENCES leave_types(id) ON DELETE CASCADE,

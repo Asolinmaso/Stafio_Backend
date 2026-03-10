@@ -1485,7 +1485,17 @@ def approve_leave_request(request_id):
             balance.used = (balance.used or 0) + leave_request.num_days
             balance.balance = balance.balance - leave_request.num_days
 
+        # Create Notification
+        new_notif = Notification(
+            user_id=leave_request.user_id,
+            title="Leave Request Approved",
+            message=f"Your leave request for {leave_request.start_date} to {leave_request.end_date} has been approved.",
+            notification_type="leave",
+            link="/employee/leave-history"
+        )
+        db.add(new_notif)
         db.commit()
+        print(f"DEBUG: Created leave approval notification for user {leave_request.user_id}")
 
         return jsonify({"message": "Leave request approved successfully"}), 200
 
@@ -1549,7 +1559,17 @@ def reject_leave_request(request_id):
         leave_request.rejection_reason = reason
         leave_request.approved_by = int(final_approver_id) if final_approver_id else None
 
+        # Create Notification
+        new_notif = Notification(
+            user_id=leave_request.user_id,
+            title="Leave Request Rejected",
+            message=f"Your leave request for {leave_request.start_date} to {leave_request.end_date} has been rejected. Reason: {reason}",
+            notification_type="leave",
+            link="/employee/leave-history"
+        )
+        db.add(new_notif)
         db.commit()
+        print(f"DEBUG: Created leave rejection notification for user {leave_request.user_id}")
 
         return jsonify({"message": "Leave request rejected"}), 200
 
@@ -1893,40 +1913,144 @@ def delete_regularization(reg_id):
 
 @app.route('/api/myholidays', methods=['GET'])
 def get_holidays():
-    """Get holidays from database"""
+    """Get holidays from database merged with Indian national/government holidays"""
     db = SessionLocal()
     try:
-        current_year = datetime.now().year
-        holidays = db.query(Holiday).filter(
+        year_param = request.args.get('year')
+        current_year = int(year_param) if year_param else datetime.now().year
+
+        # ── 1. Comprehensive Indian Government / National Observance Days ──
+        #    (Gazetted + widely observed days for the current year)
+        NATIONAL_HOLIDAYS = [
+            # JANUARY
+            {"date": f"{current_year}-01-01",  "title": "New Year's Day",      "type": "National"},
+            {"date": f"{current_year}-01-14",  "title": "Pongal / Makar Sankranti", "type": "National"},
+            {"date": f"{current_year}-01-15",  "title": "Army Day",            "type": "Observance"},
+            {"date": f"{current_year}-01-23",  "title": "Netaji Subhas Chandra Bose Jayanti", "type": "National"},
+            {"date": f"{current_year}-01-24",  "title": "National Girl Child Day", "type": "Observance"},
+            {"date": f"{current_year}-01-25",  "title": "National Voters' Day","type": "Observance"},
+            {"date": f"{current_year}-01-26",  "title": "Republic Day",        "type": "National"},
+            {"date": f"{current_year}-01-30",  "title": "Martyrs' Day (Mahatma Gandhi)", "type": "National"},
+            # FEBRUARY
+            {"date": f"{current_year}-02-04",  "title": "World Cancer Day",    "type": "Observance"},
+            {"date": f"{current_year}-02-14",  "title": "Valentine's Day",     "type": "Observance"},
+            {"date": f"{current_year}-02-19",  "title": "Chhatrapati Shivaji Maharaj Jayanti", "type": "National"},
+            {"date": f"{current_year}-02-20",  "title": "Arunachal Pradesh Statehood Day", "type": "Observance"},
+            {"date": f"{current_year}-02-28",  "title": "National Science Day", "type": "Observance"},
+            # MARCH
+            {"date": f"{current_year}-03-01",  "title": "Holi",               "type": "National"},
+            {"date": f"{current_year}-03-04",  "title": "Maha Shivaratri",     "type": "National"},
+            {"date": f"{current_year}-03-08",  "title": "International Women's Day", "type": "Observance"},
+            {"date": f"{current_year}-03-15",  "title": "World Consumer Rights Day", "type": "Observance"},
+            {"date": f"{current_year}-03-22",  "title": "Bihar Diwas / World Water Day", "type": "Observance"},
+            {"date": f"{current_year}-03-30",  "title": "Ram Navami",          "type": "National"},
+            # APRIL
+            {"date": f"{current_year}-04-03",  "title": "Good Friday",         "type": "National"},
+            {"date": f"{current_year}-04-05",  "title": "Easter Saturday",     "type": "Observance"},
+            {"date": f"{current_year}-04-06",  "title": "Mahavir Jayanti",     "type": "National"},
+            {"date": f"{current_year}-04-07",  "title": "World Health Day",    "type": "Observance"},
+            {"date": f"{current_year}-04-14",  "title": "Dr. B.R. Ambedkar Jayanti / Tamil New Year", "type": "National"},
+            {"date": f"{current_year}-04-22",  "title": "Earth Day",           "type": "Observance"},
+            # MAY
+            {"date": f"{current_year}-05-01",  "title": "International Labour Day / Maharashtra Day", "type": "National"},
+            {"date": f"{current_year}-05-07",  "title": "Rabindranath Tagore Jayanti", "type": "National"},
+            {"date": f"{current_year}-05-11",  "title": "National Technology Day", "type": "Observance"},
+            {"date": f"{current_year}-05-12",  "title": "International Nurses Day", "type": "Observance"},
+            {"date": f"{current_year}-05-31",  "title": "World No Tobacco Day", "type": "Observance"},
+            # JUNE
+            {"date": f"{current_year}-06-01",  "title": "World Milk Day",      "type": "Observance"},
+            {"date": f"{current_year}-06-05",  "title": "World Environment Day", "type": "Observance"},
+            {"date": f"{current_year}-06-21",  "title": "International Yoga Day", "type": "National"},
+            {"date": f"{current_year}-06-23",  "title": "Rath Yatra",          "type": "National"},
+            # JULY
+            {"date": f"{current_year}-07-01",  "title": "National Doctor's Day / Chartered Accountants Day", "type": "Observance"},
+            {"date": f"{current_year}-07-11",  "title": "World Population Day", "type": "Observance"},
+            {"date": f"{current_year}-07-18",  "title": "Nelson Mandela International Day", "type": "Observance"},
+            {"date": f"{current_year}-07-26",  "title": "Kargil Vijay Diwas",  "type": "National"},
+            # AUGUST
+            {"date": f"{current_year}-08-09",  "title": "Quit India Movement Day / Nagasaki Day", "type": "National"},
+            {"date": f"{current_year}-08-12",  "title": "International Youth Day", "type": "Observance"},
+            {"date": f"{current_year}-08-15",  "title": "Independence Day",    "type": "National"},
+            {"date": f"{current_year}-08-19",  "title": "Janmashtami",         "type": "National"},
+            {"date": f"{current_year}-08-29",  "title": "National Sports Day (Dhyan Chand Jayanti)", "type": "National"},
+            # SEPTEMBER
+            {"date": f"{current_year}-09-02",  "title": "Onam",               "type": "National"},
+            {"date": f"{current_year}-09-05",  "title": "Teachers' Day (Dr. Radhakrishnan Jayanti)", "type": "National"},
+            {"date": f"{current_year}-09-08",  "title": "International Literacy Day", "type": "Observance"},
+            {"date": f"{current_year}-09-14",  "title": "Hindi Diwas",         "type": "National"},
+            {"date": f"{current_year}-09-16",  "title": "Ganesh Chaturthi",    "type": "National"},
+            {"date": f"{current_year}-09-25",  "title": "Antyodaya Diwas (Deendayal Upadhyaya Jayanti)", "type": "Observance"},
+            # OCTOBER
+            {"date": f"{current_year}-10-02",  "title": "Gandhi Jayanti / Lal Bahadur Shastri Jayanti", "type": "National"},
+            {"date": f"{current_year}-10-08",  "title": "Indian Air Force Day", "type": "National"},
+            {"date": f"{current_year}-10-11",  "title": "Navratri Begins / Durga Puja",     "type": "National"},
+            {"date": f"{current_year}-10-16",  "title": "World Food Day",      "type": "Observance"},
+            {"date": f"{current_year}-10-19",  "title": "Ayudha Puja / Maha Navami", "type": "National"},
+            {"date": f"{current_year}-10-20",  "title": "Dussehra / Vijayadasami / Saraswati Puja", "type": "National"},
+            {"date": f"{current_year}-10-31",  "title": "Sardar Vallabhbhai Patel Jayanti / National Unity Day", "type": "National"},
+            # NOVEMBER
+            {"date": f"{current_year}-11-08",  "title": "Diwali",             "type": "National"},
+            {"date": f"{current_year}-11-09",  "title": "Bhai Dooj",          "type": "National"},
+            {"date": f"{current_year}-11-14",  "title": "Children's Day (Nehru Jayanti)", "type": "National"},
+            {"date": f"{current_year}-11-17",  "title": "Guru Nanak Jayanti", "type": "National"},
+            {"date": f"{current_year}-11-19",  "title": "National Integration Day", "type": "Observance"},
+            {"date": f"{current_year}-11-26",  "title": "Constitution Day (Samvidhan Diwas)", "type": "National"},
+            # DECEMBER
+            {"date": f"{current_year}-12-01",  "title": "World AIDS Day",     "type": "Observance"},
+            {"date": f"{current_year}-12-04",  "title": "Indian Navy Day",    "type": "National"},
+            {"date": f"{current_year}-12-10",  "title": "Human Rights Day",   "type": "Observance"},
+            {"date": f"{current_year}-12-16",  "title": "Vijay Diwas (1971 War Victory)", "type": "National"},
+            {"date": f"{current_year}-12-19",  "title": "Goa Liberation Day", "type": "Observance"},
+            {"date": f"{current_year}-12-22",  "title": "National Mathematics Day (Ramanujan Jayanti)", "type": "Observance"},
+            {"date": f"{current_year}-12-23",  "title": "Kisan Diwas (National Farmers Day)", "type": "National"},
+            {"date": f"{current_year}-12-25",  "title": "Christmas Day",      "type": "National"},
+        ]
+
+        # Build a date→national_holiday map
+        national_map = {}
+        for idx, nh in enumerate(NATIONAL_HOLIDAYS):
+            try:
+                d = datetime.strptime(nh["date"], "%Y-%m-%d").date()
+                national_map[nh["date"]] = {
+                    "id": f"nat-{idx}",
+                    "date": d.strftime('%d %B, %A'),
+                    "full_date": nh["date"],
+                    "title": nh["title"],
+                    "type": nh["type"],
+                    "source": "national"
+                }
+            except Exception:
+                pass
+
+        # ── 2. Custom holidays from database ──
+        db_holidays = db.query(Holiday).filter(
             Holiday.year == current_year
         ).order_by(Holiday.date).all()
-        
-        holiday_data = []
-        for h in holidays:
-            # Format date like "01 January, Wednesday"
-            date_str = h.date.strftime('%d %B, %A')
+
+        db_map = {}
+        for h in db_holidays:
+            date_key = h.date.isoformat()
             holiday_type = "Restricted" if h.is_optional else "Mandatory"
-            holiday_data.append({
+            db_map[date_key] = {
                 "id": h.id,
-                "date": date_str,
+                "date": h.date.strftime('%d %B, %A'),
+                "full_date": date_key,
                 "title": h.title,
-                "type": holiday_type
-            })
-        
-        # If no holidays in DB, provide default list
-        if not holiday_data:
-            holiday_data = [
-                {"id": 1, "date": "01 January, Wednesday", "title": "New Year's Day"},
-                {"id": 2, "date": "26 January, Sunday", "title": "Republic Day"},
-                {"id": 3, "date": "15 August, Friday", "title": "Independence Day"},
-                {"id": 4, "date": "02 October, Thursday", "title": "Gandhi Jayanti"},
-                {"id": 5, "date": "25 December, Thursday", "title": "Christmas Day"},
-            ]
-        
+                "type": holiday_type,
+                "source": "custom"
+            }
+
+        # ── 3. Merge: DB custom holidays override national ones on same date ──
+        merged = dict(national_map)
+        merged.update(db_map)
+
+        # Sort by date
+        holiday_data = sorted(merged.values(), key=lambda x: x["full_date"])
+
         return jsonify(holiday_data), 200
-        
+
     except Exception as e:
-        print(f"Holidays error: {str(e)}")
+        print(f"Holidays error: {str(e)}") 
         return jsonify([]), 200
     finally:
         db.close()
@@ -2698,7 +2822,28 @@ def update_regularization_status(request_id):
                 pass
         req.approval_date = datetime.utcnow()
         db.commit()
-        
+
+        # Create Notification
+        try:
+            notif_title = f"Regularization Request {status.capitalize()}"
+            notif_message = f"Your regularization request for {req.date} has been {status}."
+            if reason:
+                notif_message += f" Reason: {reason}"
+                
+            new_notif = Notification(
+                user_id=req.user_id,
+                title=notif_title,
+                message=notif_message,
+                notification_type="attendance",
+                link="/employee/my-regularization"
+            )
+            db.add(new_notif)
+            db.commit()
+            print(f"DEBUG: Created regularization notification for user {req.user_id} (Status: {status})")
+        except Exception as notif_err:
+            print(f"Error creating regularization notification: {notif_err}")
+            # Don't fail the main request if notification fails
+
         return jsonify({"message": f"Regularization {status} successfully"}), 200
         
     except Exception as e:
@@ -2835,6 +2980,71 @@ def get_employee_profile_data(user_id):
         
         if not user:
             return jsonify({"message": "User not found"}), 404
+            
+        profile = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user_id).first()
+        documents_list = db.query(Document).filter(Document.user_id == user_id).all()
+        
+        # Format profile data
+        profile_data = {
+            "profileImage": profile.profile_image if profile else "",
+            "name": f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username,
+            "gender": profile.gender if profile else "",
+            "dob": profile.dob.strftime('%Y-%m-%d') if profile and profile.dob else "",
+            "maritalStatus": profile.marital_status if profile else "",
+            "nationality": profile.nationality if profile else "",
+            "bloodGroup": profile.blood_group if profile else "",
+            "email": user.email or "",
+            "phone": user.phone or "",
+            "address": profile.address if profile else "",
+            "emergencyContactNumber": profile.emergency_contact if profile else "",
+            "relationship": profile.emergency_relationship if profile else "",
+            "empType": profile.emp_type if profile else "",
+            "department": profile.department if profile else "",
+            "location": profile.location if profile else "",
+            "supervisor": profile.supervisor_id if profile else "",
+            "hrManager": profile.hr_manager_id if profile else "",
+            "empId": profile.emp_id if profile and profile.emp_id else str(user.id),
+            "status": profile.status if profile else "Active"
+        }
+        
+        education_data = {
+            "institution": profile.institution if profile else "",
+            "location": profile.edu_location if profile else "",
+            "startDate": profile.edu_start_date.strftime('%Y-%m-%d') if profile and profile.edu_start_date else "",
+            "endDate": profile.edu_end_date.strftime('%Y-%m-%d') if profile and profile.edu_end_date else "",
+            "qualification": profile.qualification if profile else "",
+            "specialization": profile.specialization if profile else "",
+            "skills": profile.skills.split(',') if profile and profile.skills else [],
+            "portfolio": profile.portfolio if profile else ""
+        }
+        
+        experience_data = {
+            "company": profile.prev_company if profile else "",
+            "jobTitle": profile.prev_job_title if profile else "",
+            "startDate": profile.exp_start_date.strftime('%Y-%m-%d') if profile and profile.exp_start_date else "",
+            "endDate": profile.exp_end_date.strftime('%Y-%m-%d') if profile and profile.exp_end_date else "",
+            "responsibilities": profile.responsibilities if profile else "",
+            "totalYears": str(profile.total_experience_years) if profile and profile.total_experience_years else ""
+        }
+        
+        bank_data = {
+            "bankName": profile.bank_name if profile else "",
+            "branch": profile.bank_branch if profile else "",
+            "accountNumber": profile.account_number if profile else "",
+            "ifsc": profile.ifsc_code if profile else "",
+            "aadhaar": profile.aadhaar_number if profile else "",
+            "pan": profile.pan_number if profile else ""
+        }
+        
+        docs_data = []
+        for doc in documents_list:
+            docs_data.append({
+                "id": doc.id,
+                "fileName": doc.file_name,
+                "type": doc.document_type,
+                "size": str(doc.file_size // 1024) if doc.file_size else "0",
+                "status": "Completed" if doc.is_verified else "Uploaded"
+            })
         
         # Fetch employee profile data from database
         emp_profile = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user_id).first()
@@ -3624,36 +3834,72 @@ def verify_document(doc_id):
 
 @app.route('/api/employee_profile/<int:user_id>', methods=['PUT'])
 def update_employee_profile(user_id):
-    """Update employee profile"""
+    """Update employee profile with nested content"""
     data = request.get_json()
     db = SessionLocal()
     try:
         profile = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user_id).first()
         
         if not profile:
-            # Create if doesn't exist
             profile = EmployeeProfile(user_id=user_id)
             db.add(profile)
         
-        # Update fields if provided
-        updateable_fields = [
-            'emp_id', 'gender', 'dob', 'marital_status', 'nationality', 'blood_group',
-            'address', 'emergency_contact', 'emergency_relationship', 'emp_type',
-            'department', 'position', 'location', 'status', 'profile_image',
-            'institution', 'edu_location', 'edu_start_date', 'edu_end_date',
-            'qualification', 'specialization', 'skills', 'portfolio',
-            'prev_company', 'prev_job_title', 'exp_start_date', 'exp_end_date',
-            'responsibilities', 'total_experience_years',
-            'bank_name', 'bank_branch', 'account_number', 'ifsc_code',
-            'aadhaar_number', 'pan_number'
-        ]
-        
-        for field in updateable_fields:
-            if field in data:
-                if field in ['dob', 'edu_start_date', 'edu_end_date', 'exp_start_date', 'exp_end_date'] and data[field]:
-                    setattr(profile, field, datetime.strptime(data[field], '%Y-%m-%d').date())
+        # Update Personal Profile
+        if 'profile' in data:
+            p = data['profile']
+            if 'gender' in p: profile.gender = p['gender']
+            if 'dob' in p and p['dob']: profile.dob = datetime.strptime(p['dob'], '%Y-%m-%d').date()
+            if 'maritalStatus' in p: profile.marital_status = p['maritalStatus']
+            if 'nationality' in p: profile.nationality = p['nationality']
+            if 'bloodGroup' in p: profile.blood_group = p['bloodGroup']
+            if 'address' in p: profile.address = p['address']
+            if 'emergencyContactNumber' in p: profile.emergency_contact = p['emergencyContactNumber']
+            if 'relationship' in p: profile.emergency_relationship = p['relationship']
+            if 'empType' in p: profile.emp_type = p['empType']
+            if 'department' in p: profile.department = p['department']
+            if 'location' in p: profile.location = p['location']
+            if 'status' in p: profile.status = p['status']
+            if 'profileImage' in p: profile.profile_image = p['profileImage']
+            if 'empId' in p: profile.emp_id = p['empId']
+
+        # Update Education
+        if 'education' in data:
+            e = data['education']
+            if 'institution' in e: profile.institution = e['institution']
+            if 'location' in e: profile.edu_location = e['location']
+            if 'startDate' in e and e['startDate']: profile.edu_start_date = datetime.strptime(e['startDate'], '%Y-%m-%d').date()
+            if 'endDate' in e and e['endDate']: profile.edu_end_date = datetime.strptime(e['endDate'], '%Y-%m-%d').date()
+            if 'qualification' in e: profile.qualification = e['qualification']
+            if 'specialization' in e: profile.specialization = e['specialization']
+            if 'skills' in e: 
+                skills = e['skills']
+                if isinstance(skills, list):
+                    profile.skills = ','.join(skills)
                 else:
-                    setattr(profile, field, data[field])
+                    profile.skills = str(skills)
+            if 'portfolio' in e: profile.portfolio = e['portfolio']
+
+        # Update Experience
+        if 'experience' in data:
+            ex = data['experience']
+            if 'company' in ex: profile.prev_company = ex['company']
+            if 'jobTitle' in ex: profile.prev_job_title = ex['jobTitle']
+            if 'startDate' in ex and ex['startDate']: profile.exp_start_date = datetime.strptime(ex['startDate'], '%Y-%m-%d').date()
+            if 'endDate' in ex and ex['endDate']: profile.exp_end_date = datetime.strptime(ex['endDate'], '%Y-%m-%d').date()
+            if 'responsibilities' in ex: profile.responsibilities = ex['responsibilities']
+            if 'totalYears' in ex and ex['totalYears']:
+                try: profile.total_experience_years = float(ex['totalYears'])
+                except: pass
+
+        # Update Bank Details
+        if 'bank' in data:
+            b = data['bank']
+            if 'bankName' in b: profile.bank_name = b['bankName']
+            if 'branch' in b: profile.bank_branch = b['branch']
+            if 'accountNumber' in b: profile.account_number = b['accountNumber']
+            if 'ifsc' in b: profile.ifsc_code = b['ifsc']
+            if 'aadhaar' in b: profile.aadhaar_number = b['aadhaar']
+            if 'pan' in b: profile.pan_number = b['pan']
         
         db.commit()
         return jsonify({"message": "Profile updated successfully"}), 200
@@ -3751,6 +3997,7 @@ def update_settings():
 def get_notifications():
     """Get notifications for a user"""
     user_id = request.headers.get('X-User-ID')
+    print(f"DEBUG: Fetching notifications for user_id={user_id}")
     if not user_id:
         return jsonify({"message": "User ID required"}), 400
     
@@ -3759,6 +4006,8 @@ def get_notifications():
         notifications = db.query(Notification).filter(
             Notification.user_id == int(user_id)
         ).order_by(Notification.created_at.desc()).limit(50).all()
+        
+        print(f"DEBUG: Found {len(notifications)} notifications for user {user_id}")
         
         result = []
         for n in notifications:
