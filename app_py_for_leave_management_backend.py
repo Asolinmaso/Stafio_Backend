@@ -128,6 +128,16 @@ def custom_admin_required():
             return fn(*args, **kwargs)
         return decorator
     return wrapper
+
+def custom_user_required():
+    """Backward-compatible wrapper that uses JWT auth internally"""
+    def wrapper(fn):
+        @wraps(fn)
+        @jwt_required()
+        def decorator(*args, **kwargs):
+            return fn(*args, **kwargs)
+        return decorator
+    return wrapper
 # --- END AUTH DECORATORS ---
 
 # Now register the admin workflow endpoints (needs custom_admin_required decorator)
