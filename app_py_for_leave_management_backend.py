@@ -1474,7 +1474,17 @@ def approve_leave_request(request_id):
             balance.used = (balance.used or 0) + leave_request.num_days
             balance.balance = balance.balance - leave_request.num_days
 
+        # Create Notification
+        new_notif = Notification(
+            user_id=leave_request.user_id,
+            title="Leave Request Approved",
+            message=f"Your leave request for {leave_request.start_date} to {leave_request.end_date} has been approved.",
+            notification_type="leave",
+            link="/employee/leave-history"
+        )
+        db.add(new_notif)
         db.commit()
+        print(f"DEBUG: Created leave approval notification for user {leave_request.user_id}")
 
         return jsonify({"message": "Leave request approved successfully"}), 200
 
@@ -1538,7 +1548,17 @@ def reject_leave_request(request_id):
         leave_request.rejection_reason = reason
         leave_request.approved_by = int(final_approver_id) if final_approver_id else None
 
+        # Create Notification
+        new_notif = Notification(
+            user_id=leave_request.user_id,
+            title="Leave Request Rejected",
+            message=f"Your leave request for {leave_request.start_date} to {leave_request.end_date} has been rejected. Reason: {reason}",
+            notification_type="leave",
+            link="/employee/leave-history"
+        )
+        db.add(new_notif)
         db.commit()
+        print(f"DEBUG: Created leave rejection notification for user {leave_request.user_id}")
 
         return jsonify({"message": "Leave request rejected"}), 200
 
@@ -2828,7 +2848,28 @@ def update_regularization_status(request_id):
                 pass
         req.approval_date = datetime.utcnow()
         db.commit()
-        
+
+        # Create Notification
+        try:
+            notif_title = f"Regularization Request {status.capitalize()}"
+            notif_message = f"Your regularization request for {req.date} has been {status}."
+            if reason:
+                notif_message += f" Reason: {reason}"
+                
+            new_notif = Notification(
+                user_id=req.user_id,
+                title=notif_title,
+                message=notif_message,
+                notification_type="attendance",
+                link="/employee/my-regularization"
+            )
+            db.add(new_notif)
+            db.commit()
+            print(f"DEBUG: Created regularization notification for user {req.user_id} (Status: {status})")
+        except Exception as notif_err:
+            print(f"Error creating regularization notification: {notif_err}")
+            # Don't fail the main request if notification fails
+
         return jsonify({"message": f"Regularization {status} successfully"}), 200
         
     except Exception as e:
@@ -2965,57 +3006,78 @@ def get_employee_profile_data(user_id):
         
         if not user:
             return jsonify({"message": "User not found"}), 404
+            
+        profile = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user_id).first()
+        documents_list = db.query(Document).filter(Document.user_id == user_id).all()
         
-        # Return only data from database, empty strings for fields not in database
+        # Format profile data
+        profile_data = {
+            "profileImage": profile.profile_image if profile else "",
+            "name": f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username,
+            "gender": profile.gender if profile else "",
+            "dob": profile.dob.strftime('%Y-%m-%d') if profile and profile.dob else "",
+            "maritalStatus": profile.marital_status if profile else "",
+            "nationality": profile.nationality if profile else "",
+            "bloodGroup": profile.blood_group if profile else "",
+            "email": user.email or "",
+            "phone": user.phone or "",
+            "address": profile.address if profile else "",
+            "emergencyContactNumber": profile.emergency_contact if profile else "",
+            "relationship": profile.emergency_relationship if profile else "",
+            "empType": profile.emp_type if profile else "",
+            "department": profile.department if profile else "",
+            "location": profile.location if profile else "",
+            "supervisor": profile.supervisor_id if profile else "",
+            "hrManager": profile.hr_manager_id if profile else "",
+            "empId": profile.emp_id if profile and profile.emp_id else str(user.id),
+            "status": profile.status if profile else "Active"
+        }
+        
+        education_data = {
+            "institution": profile.institution if profile else "",
+            "location": profile.edu_location if profile else "",
+            "startDate": profile.edu_start_date.strftime('%Y-%m-%d') if profile and profile.edu_start_date else "",
+            "endDate": profile.edu_end_date.strftime('%Y-%m-%d') if profile and profile.edu_end_date else "",
+            "qualification": profile.qualification if profile else "",
+            "specialization": profile.specialization if profile else "",
+            "skills": profile.skills.split(',') if profile and profile.skills else [],
+            "portfolio": profile.portfolio if profile else ""
+        }
+        
+        experience_data = {
+            "company": profile.prev_company if profile else "",
+            "jobTitle": profile.prev_job_title if profile else "",
+            "startDate": profile.exp_start_date.strftime('%Y-%m-%d') if profile and profile.exp_start_date else "",
+            "endDate": profile.exp_end_date.strftime('%Y-%m-%d') if profile and profile.exp_end_date else "",
+            "responsibilities": profile.responsibilities if profile else "",
+            "totalYears": str(profile.total_experience_years) if profile and profile.total_experience_years else ""
+        }
+        
+        bank_data = {
+            "bankName": profile.bank_name if profile else "",
+            "branch": profile.bank_branch if profile else "",
+            "accountNumber": profile.account_number if profile else "",
+            "ifsc": profile.ifsc_code if profile else "",
+            "aadhaar": profile.aadhaar_number if profile else "",
+            "pan": profile.pan_number if profile else ""
+        }
+        
+        docs_data = []
+        for doc in documents_list:
+            docs_data.append({
+                "id": doc.id,
+                "fileName": doc.file_name,
+                "type": doc.document_type,
+                "size": str(doc.file_size // 1024) if doc.file_size else "0",
+                "status": "Completed" if doc.is_verified else "Uploaded"
+            })
+        
         employee_profile_data = {
-            "profile": {
-                "profileImage": "",
-                "name": f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username,
-                "gender": "",
-                "dob": "",
-                "maritalStatus": "",
-                "nationality": "",
-                "bloodGroup": "",
-                "email": user.email or "",
-                "phone": "",
-                "address": "",
-                "emergencyContactNumber": "",
-                "relationship": "",
-                "empType": "",
-                "department": "",
-                "location": "",
-                "supervisor": "",
-                "hrManager": "",
-                "empId": str(user.id) if user.id else "",
-                "status": ""
-            },
-            "education": {
-                "institution": "",
-                "location": "",
-                "startDate": "",
-                "endDate": "",
-                "qualification": "",
-                "specialization": "",
-                "skills": [],
-                "portfolio": ""
-            },
-            "experience": {
-                "company": "",
-                "jobTitle": "",
-                "startDate": "",
-                "endDate": "",
-                "responsibilities": "",
-                "totalYears": ""
-            },
-            "bank": {
-                "bankName": "",
-                "branch": "",
-                "accountNumber": "",
-                "ifsc": "",
-                "aadhaar": "",
-                "pan": ""
-            },
-            "documents": []
+            "profile": profile_data,
+            "education": education_data,
+            "experience": experience_data,
+            "bank": bank_data,
+            "documents": docs_data
         }
         
         return jsonify(employee_profile_data), 200
@@ -3728,36 +3790,72 @@ def verify_document(doc_id):
 
 @app.route('/api/employee_profile/<int:user_id>', methods=['PUT'])
 def update_employee_profile(user_id):
-    """Update employee profile"""
+    """Update employee profile with nested content"""
     data = request.get_json()
     db = SessionLocal()
     try:
         profile = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user_id).first()
         
         if not profile:
-            # Create if doesn't exist
             profile = EmployeeProfile(user_id=user_id)
             db.add(profile)
         
-        # Update fields if provided
-        updateable_fields = [
-            'emp_id', 'gender', 'dob', 'marital_status', 'nationality', 'blood_group',
-            'address', 'emergency_contact', 'emergency_relationship', 'emp_type',
-            'department', 'position', 'location', 'status', 'profile_image',
-            'institution', 'edu_location', 'edu_start_date', 'edu_end_date',
-            'qualification', 'specialization', 'skills', 'portfolio',
-            'prev_company', 'prev_job_title', 'exp_start_date', 'exp_end_date',
-            'responsibilities', 'total_experience_years',
-            'bank_name', 'bank_branch', 'account_number', 'ifsc_code',
-            'aadhaar_number', 'pan_number'
-        ]
-        
-        for field in updateable_fields:
-            if field in data:
-                if field in ['dob', 'edu_start_date', 'edu_end_date', 'exp_start_date', 'exp_end_date'] and data[field]:
-                    setattr(profile, field, datetime.strptime(data[field], '%Y-%m-%d').date())
+        # Update Personal Profile
+        if 'profile' in data:
+            p = data['profile']
+            if 'gender' in p: profile.gender = p['gender']
+            if 'dob' in p and p['dob']: profile.dob = datetime.strptime(p['dob'], '%Y-%m-%d').date()
+            if 'maritalStatus' in p: profile.marital_status = p['maritalStatus']
+            if 'nationality' in p: profile.nationality = p['nationality']
+            if 'bloodGroup' in p: profile.blood_group = p['bloodGroup']
+            if 'address' in p: profile.address = p['address']
+            if 'emergencyContactNumber' in p: profile.emergency_contact = p['emergencyContactNumber']
+            if 'relationship' in p: profile.emergency_relationship = p['relationship']
+            if 'empType' in p: profile.emp_type = p['empType']
+            if 'department' in p: profile.department = p['department']
+            if 'location' in p: profile.location = p['location']
+            if 'status' in p: profile.status = p['status']
+            if 'profileImage' in p: profile.profile_image = p['profileImage']
+            if 'empId' in p: profile.emp_id = p['empId']
+
+        # Update Education
+        if 'education' in data:
+            e = data['education']
+            if 'institution' in e: profile.institution = e['institution']
+            if 'location' in e: profile.edu_location = e['location']
+            if 'startDate' in e and e['startDate']: profile.edu_start_date = datetime.strptime(e['startDate'], '%Y-%m-%d').date()
+            if 'endDate' in e and e['endDate']: profile.edu_end_date = datetime.strptime(e['endDate'], '%Y-%m-%d').date()
+            if 'qualification' in e: profile.qualification = e['qualification']
+            if 'specialization' in e: profile.specialization = e['specialization']
+            if 'skills' in e: 
+                skills = e['skills']
+                if isinstance(skills, list):
+                    profile.skills = ','.join(skills)
                 else:
-                    setattr(profile, field, data[field])
+                    profile.skills = str(skills)
+            if 'portfolio' in e: profile.portfolio = e['portfolio']
+
+        # Update Experience
+        if 'experience' in data:
+            ex = data['experience']
+            if 'company' in ex: profile.prev_company = ex['company']
+            if 'jobTitle' in ex: profile.prev_job_title = ex['jobTitle']
+            if 'startDate' in ex and ex['startDate']: profile.exp_start_date = datetime.strptime(ex['startDate'], '%Y-%m-%d').date()
+            if 'endDate' in ex and ex['endDate']: profile.exp_end_date = datetime.strptime(ex['endDate'], '%Y-%m-%d').date()
+            if 'responsibilities' in ex: profile.responsibilities = ex['responsibilities']
+            if 'totalYears' in ex and ex['totalYears']:
+                try: profile.total_experience_years = float(ex['totalYears'])
+                except: pass
+
+        # Update Bank Details
+        if 'bank' in data:
+            b = data['bank']
+            if 'bankName' in b: profile.bank_name = b['bankName']
+            if 'branch' in b: profile.bank_branch = b['branch']
+            if 'accountNumber' in b: profile.account_number = b['accountNumber']
+            if 'ifsc' in b: profile.ifsc_code = b['ifsc']
+            if 'aadhaar' in b: profile.aadhaar_number = b['aadhaar']
+            if 'pan' in b: profile.pan_number = b['pan']
         
         db.commit()
         return jsonify({"message": "Profile updated successfully"}), 200
@@ -3855,6 +3953,7 @@ def update_settings():
 def get_notifications():
     """Get notifications for a user"""
     user_id = request.headers.get('X-User-ID')
+    print(f"DEBUG: Fetching notifications for user_id={user_id}")
     if not user_id:
         return jsonify({"message": "User ID required"}), 400
     
@@ -3863,6 +3962,8 @@ def get_notifications():
         notifications = db.query(Notification).filter(
             Notification.user_id == int(user_id)
         ).order_by(Notification.created_at.desc()).limit(50).all()
+        
+        print(f"DEBUG: Found {len(notifications)} notifications for user {user_id}")
         
         result = []
         for n in notifications:

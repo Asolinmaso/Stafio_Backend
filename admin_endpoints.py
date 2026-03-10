@@ -683,8 +683,8 @@ def get_break_times():
     try:
         # Default break times
         break_times = {
-            'lunch_break': '1:00 PM - 2:00 PM',
-            'coffee_break': '4:00 PM - 4:15 PM',
+            'lunch_break': '1:00 PM - 2:30 PM',
+            'coffee_break': '4:00 PM - 4:30 PM',
             'custom_breaks': []
         }
         
@@ -728,8 +728,8 @@ def update_break_times():
         user_id = request.headers.get('X-User-ID', 1)
         
         break_settings = {
-            'lunch_break': data.get('lunch_break', '1:00 PM - 2:00 PM'),
-            'coffee_break': data.get('coffee_break', '4:00 PM - 4:15 PM')
+            'lunch_break': data.get('lunch_break', '1:00 PM - 2:30 PM'),
+            'coffee_break': data.get('coffee_break', '4:00 PM - 4:30 PM')
         }
         
         # Handle custom breaks as JSON
