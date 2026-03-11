@@ -667,20 +667,25 @@ def update_general_settings():
             'allow_manager_edit': ('boolean', str(data.get('allow_manager_edit', False)))
         }
         
+        try:
+            u_id = int(str(user_id))
+        except (ValueError, TypeError):
+            u_id = None
+
         for key, (setting_type, value) in settings_to_save.items():
             existing = db.query(SystemSettings).filter(SystemSettings.setting_key == key).first()
             
             if existing:
                 existing.setting_value = value
                 existing.setting_type = setting_type
-                existing.updated_by = int(user_id)
+                existing.updated_by = u_id
                 existing.updated_at = datetime.utcnow()
             else:
                 new_setting = SystemSettings(
                     setting_key=key,
                     setting_value=value,
                     setting_type=setting_type,
-                    updated_by=int(user_id)
+                    updated_by=u_id
                 )
                 db.add(new_setting)
         
@@ -700,7 +705,6 @@ def update_general_settings():
 # ============================================================================
 
 @admin_bp.route('/api/settings/break_times', methods=['GET'])
-@admin_required()
 def get_break_times():
     """
     Get break time settings
@@ -764,20 +768,25 @@ def update_break_times():
         # Handle custom breaks as JSON
         if 'custom_breaks' in data:
             break_settings['custom_breaks'] = json.dumps(data.get('custom_breaks', []))
+            
+        try:
+            u_id = int(str(user_id))
+        except (ValueError, TypeError):
+            u_id = None
         
         for key, value in break_settings.items():
             existing = db.query(SystemSettings).filter(SystemSettings.setting_key == key).first()
             
             if existing:
                 existing.setting_value = value
-                existing.updated_by = int(user_id)
+                existing.updated_by = u_id
                 existing.updated_at = datetime.utcnow()
             else:
                 new_setting = SystemSettings(
                     setting_key=key,
                     setting_value=value,
                     setting_type='json' if key == 'custom_breaks' else 'string',
-                    updated_by=int(user_id)
+                    updated_by=u_id
                 )
                 db.add(new_setting)
         
@@ -820,6 +829,7 @@ def create_department():
         new_dept = Department(
             name=name,
             description=data.get('description', ''),
+            member_count=data.get('member_count', 0),
             manager_id=data.get('manager_id')
         )
         db.add(new_dept)
@@ -828,7 +838,8 @@ def create_department():
         return jsonify({
             "message": "Department created successfully",
             "id": new_dept.id,
-            "name": new_dept.name
+            "name": new_dept.name,
+            "member_count": new_dept.member_count
         }), 201
         
     except Exception as e:
@@ -860,6 +871,8 @@ def update_department(dept_id):
             dept.name = data['name']
         if 'description' in data:
             dept.description = data['description']
+        if 'member_count' in data:
+            dept.member_count = data['member_count']
         if 'manager_id' in data:
             dept.manager_id = data['manager_id']
         
@@ -905,11 +918,9 @@ def delete_department(dept_id):
 # ============================================================================
 
 @admin_bp.route('/api/settings/basic_info', methods=['GET'])
-@admin_required()
-def get_admin_basic_info():
+def get_user_basic_info():
     """
-    Get admin's basic info
-    Tables Used: users
+    Get user's basic info for settings
     """
     user_id = request.headers.get('X-User-ID')
     
@@ -934,7 +945,8 @@ def get_admin_basic_info():
             "email": user.email or "",
             "phone": user.phone or "",
             "position": emp_profile.emp_type if emp_profile and emp_profile.emp_type else "",
-            "role": user.role or "admin"
+            "role": user.role or "admin",
+            "profileImage": emp_profile.profile_image if emp_profile and emp_profile.profile_image else ""
         }), 200
         
     except Exception as e:
@@ -945,10 +957,9 @@ def get_admin_basic_info():
 
 
 @admin_bp.route('/api/settings/basic_info', methods=['PUT'])
-@admin_required()
-def update_admin_basic_info():
+def update_user_basic_info():
     """
-    Update admin's basic info
+    Update user's basic info (admin or employee)
     Body: { firstName, lastName, email, phone, position, role }
     Tables Used: users, employee_profiles
     """
@@ -974,27 +985,45 @@ def update_admin_basic_info():
             user.email = data['email']
         if 'phone' in data:
             user.phone = data['phone']
-        if 'role' in data:
+            
+        # Only admin can update role
+        user_role_header = request.headers.get('X-User-Role')
+        if 'role' in data and user_role_header == 'admin':
             user.role = data['role']
         
-        # Update position in employee profile
-        if 'position' in data:
+        # Update profile fields (position and image)
+        if 'position' in data or 'profileImage' in data:
             emp_profile = db.query(EmployeeProfile).filter(
                 EmployeeProfile.user_id == int(user_id)
             ).first()
             
             if emp_profile:
-                emp_profile.emp_type = data['position']
+                if 'position' in data:
+                    emp_profile.emp_type = data['position']
+                if 'profileImage' in data:
+                    emp_profile.profile_image = data['profileImage']
             else:
                 new_profile = EmployeeProfile(
                     user_id=int(user_id),
-                    emp_type=data['position']
+                    emp_type=data.get('position', ''),
+                    profile_image=data.get('profileImage', '')
                 )
                 db.add(new_profile)
         
         db.commit()
         return jsonify({"message": "Basic info updated successfully"}), 200
         
+    except IntegrityError as e:
+        db.rollback()
+        print(f"IntegrityError in update_admin_basic_info: {str(e)}")
+        # Check if it's a unique constraint on email or phone
+        error_msg = str(e).lower()
+        if "users_email_key" in error_msg or "email" in error_msg:
+            return jsonify({"message": "This email address is already registered to another user."}), 400
+        elif "users_phone_key" in error_msg or "phone" in error_msg:
+            return jsonify({"message": "This phone number is already registered to another user."}), 400
+        else:
+            return jsonify({"message": "A database constraint was violated. Please check your data."}), 400
     except Exception as e:
         db.rollback()
         print(f"Error in update_admin_basic_info: {str(e)}")
@@ -1088,10 +1117,15 @@ def get_settings_departments():
         
         dept_list = []
         for dept in departments:
-            # Count members in this department
-            member_count = db.query(EmployeeProfile).filter(
-                EmployeeProfile.department == dept.name
-            ).count()
+            # If member_count is 0 or None, try to get actual count
+            # Otherwise, use the manually set member_count
+            current_count = dept.member_count or 0
+            
+            # Optional: if you want it to always be dynamic if set to 0
+            if current_count == 0:
+                current_count = db.query(EmployeeProfile).filter(
+                    EmployeeProfile.department == dept.name
+                ).count()
             
             # Get department head name
             head_name = ""
@@ -1104,7 +1138,7 @@ def get_settings_departments():
                 "id": dept.id,
                 "name": dept.name,
                 "description": dept.description or "",
-                "memberCount": member_count,
+                "memberCount": current_count,
                 "headName": head_name,
                 "managerId": dept.manager_id
             })

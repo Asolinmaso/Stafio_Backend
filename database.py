@@ -163,7 +163,7 @@ class EmployeeProfile(Base):
     supervisor_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'))
     hr_manager_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'))
     status = Column(String(20), default='Active')
-    profile_image = Column(String(255))
+    profile_image = Column(Text)
     
     # Education fields
     institution = Column(String(100))
@@ -273,6 +273,7 @@ class Department(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(50), unique=True, nullable=False)
     description = Column(Text)
+    member_count = Column(Integer, default=0)
     manager_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'))
     
     manager = relationship("User")
