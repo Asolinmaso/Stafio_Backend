@@ -15,7 +15,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import func, extract
+from sqlalchemy import func, extract, text
 from database import (
     SessionLocal, User, OTP, init_db, get_db,
     LeaveType, LeaveBalance, LeaveRequest,
@@ -1202,7 +1202,7 @@ def get_dashboard_data():
             LeaveBalance.user_id == user_id,
             LeaveBalance.year == current_year
         ).scalar()
-        total_leaves = float(total_leaves_result) if total_leaves_result else 15  # Default 15 if no balance set
+        total_leaves = float(total_leaves_result) if total_leaves_result else 0  # Default 0 if no balance set
         
         # Leaves taken (approved leave requests this year)
         leaves_taken_result = db.query(func.sum(LeaveRequest.num_days)).filter(
@@ -1261,6 +1261,52 @@ def get_dashboard_data():
         db.close()
 
 
+@app.route('/api/attendance/monthly', methods=['GET'])
+def get_monthly_attendance():
+    user_id = request.headers.get('X-User-ID')
+    print(f"DEBUG monthly attendance - user_id: {user_id}")
+    if not user_id:
+        return jsonify([]), 400
+
+    db = SessionLocal()
+    try:
+        current_year = datetime.now().year
+
+        # Get working days per month from attendance table
+        results = db.query(
+            extract('month', Attendance.date).label('month'),
+            func.count(Attendance.id).label('worked')
+        ).filter(
+            Attendance.user_id == int(user_id),
+            extract('year', Attendance.date) == current_year,
+            Attendance.status.in_(['On Time', 'Late Login'])
+        ).group_by(extract('month', Attendance.date)).all()
+
+        # Total working days per month (approx 22 working days)
+        WORKING_DAYS_PER_MONTH = 22
+
+        month_names = ["Jan","Feb","Mar","Apr","May","Jun",
+                       "Jul","Aug","Sep","Oct","Nov","Dec"]
+
+        # Build all 12 months, 0% if no data
+        data = []
+        results_dict = {int(r.month): r.worked for r in results}
+        for i in range(1, 13):
+            worked = results_dict.get(i, 0)
+            percentage = round((worked / WORKING_DAYS_PER_MONTH) * 100)
+            percentage = min(percentage, 100)  # cap at 100%
+            data.append({
+                "month": month_names[i - 1],
+                "value": percentage
+            })
+
+        return jsonify(data), 200
+
+    except Exception as e:
+        print(f"Monthly attendance error: {str(e)}")
+        return jsonify([]), 200
+    finally:
+        db.close()
 #admin dasboard datas
 
 @app.route('/admin_dashboard', methods=['GET'])
@@ -1742,64 +1788,140 @@ def get_leave_balance():
 # =============================================================================
 # ATTENDANCE STATISTICS ENDPOINT
 # =============================================================================
-
 @app.route('/api/attendance_stats', methods=['GET'])
 def get_attendance_stats():
     """Get user's attendance statistics"""
     user_id = request.headers.get('X-User-ID') or request.args.get('user_id')
-    
+
+    if not user_id:
+        return jsonify({
+            "error": "User ID is required",
+            "working_days": 0,
+            "total_leaves": 0,
+            "late_logins": 0,
+            "on_time_logins": 0
+        }), 400
+
     db = SessionLocal()
     try:
-        # Get current month stats
         now = datetime.now()
         start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        
-        # Count working days (present)
+
+        # Count working days
         working_days = db.query(Attendance).filter(
             Attendance.user_id == user_id,
             Attendance.date >= start_of_month.date(),
-            Attendance.status.in_(['present', 'On Time', 'Late'])
+            Attendance.status.in_([
+                'present', 'Present',
+                'On Time', 'on_time', 'ontime',
+                'Late', 'Late Login', 'late_login'
+            ])
         ).count()
-        
-        # Count approved leaves
-        total_leaves = db.query(LeaveRequest).filter(
-            LeaveRequest.user_id == user_id,
-            LeaveRequest.status == 'approved',
-            LeaveRequest.start_date >= start_of_month.date()
-        ).count()
-        
+
+        # Count approved leaves (raw SQL to avoid day_type column issue)
+        total_leaves_result = db.execute(text("""
+            SELECT COUNT(*) FROM leave_requests
+            WHERE user_id = :user_id
+            AND status = 'approved'
+            AND start_date >= :start_date
+        """), {"user_id": user_id, "start_date": start_of_month.date()})
+        total_leaves = total_leaves_result.scalar() or 0
+
         # Count late logins
         late_logins = db.query(Attendance).filter(
             Attendance.user_id == user_id,
             Attendance.date >= start_of_month.date(),
-            Attendance.status == 'Late'
+            Attendance.status.in_(['Late', 'Late Login', 'late_login', 'late'])
         ).count()
-        
+
         # Count on-time logins
         on_time_logins = db.query(Attendance).filter(
             Attendance.user_id == user_id,
             Attendance.date >= start_of_month.date(),
-            Attendance.status == 'On Time'
+            Attendance.status.in_(['On Time', 'on_time', 'ontime', 'present', 'Present'])
         ).count()
-        
+
         return jsonify({
             "working_days": working_days or 0,
             "total_leaves": total_leaves or 0,
             "late_logins": late_logins or 0,
             "on_time_logins": on_time_logins or 0
         }), 200
-        
+
     except Exception as e:
-        print(f"Attendance stats error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
+            "error": str(e),
             "working_days": 0,
             "total_leaves": 0,
             "late_logins": 0,
             "on_time_logins": 0
-        }), 200
+        }), 500
+
     finally:
         db.close()
 
+@app.route('/api/leave_notification', methods=['GET'])
+def get_leave_notification():
+    """Get latest approved/rejected leave notification for employee dashboard"""
+    user_id = request.headers.get('X-User-ID')
+    if not user_id:
+        return jsonify({"notification": None}), 200
+
+    db = SessionLocal()
+    try:
+        # Get the most recent approved or rejected leave request
+        leave = db.query(LeaveRequest).filter(
+            LeaveRequest.user_id == int(user_id),
+            LeaveRequest.status.in_(['approved', 'rejected'])
+        ).order_by(LeaveRequest.approval_date.desc()).first()
+
+        if not leave:
+            return jsonify({"notification": None}), 200
+
+        return jsonify({
+            "notification": {
+                "status": leave.status,
+                "start_date": leave.start_date.strftime('%d %B %Y'),
+                "end_date": leave.end_date.strftime('%d %B %Y')
+            }
+        }), 200
+
+    except Exception as e:
+        print(f"Leave notification error: {str(e)}")
+        return jsonify({"notification": None}), 200
+    finally:
+        db.close()
+
+@app.route('/api/admin/pending_counts', methods=['GET'])
+def get_admin_pending_counts():
+    """Get pending approvals and pending leave requests count for admin dashboard notification"""
+    db = SessionLocal()
+    try:
+        # Pending leave approvals (regularization requests pending)
+        pending_approvals = db.query(func.count(Regularization.id)).filter(
+            Regularization.status == 'pending'
+        ).scalar() or 0
+
+        # Pending leave requests
+        pending_leave_requests = db.query(func.count(LeaveRequest.id)).filter(
+            LeaveRequest.status == 'pending'
+        ).scalar() or 0
+
+        return jsonify({
+            "pending_approvals": pending_approvals,
+            "pending_leave_requests": pending_leave_requests
+        }), 200
+
+    except Exception as e:
+        print(f"Pending counts error: {str(e)}")
+        return jsonify({
+            "pending_approvals": 0,
+            "pending_leave_requests": 0
+        }), 200
+    finally:
+        db.close()
 
 @app.route('/api/leave_stats', methods=['GET'])
 def get_leave_stats():
