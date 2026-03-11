@@ -156,13 +156,14 @@ class EmployeeProfile(Base):
     emergency_contact = Column(String(20))
     emergency_relationship = Column(String(50))
     emp_type = Column(String(50))  # Full-time, Part-time, Contract
+    joining_date = Column(Date)
     department = Column(String(50))
     position = Column(String(50))
     location = Column(String(100))
     supervisor_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'))
     hr_manager_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'))
     status = Column(String(20), default='Active')
-    profile_image = Column(String(255))
+    profile_image = Column(Text)
     
     # Education fields
     institution = Column(String(100))
@@ -272,6 +273,7 @@ class Department(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(50), unique=True, nullable=False)
     description = Column(Text)
+    member_count = Column(Integer, default=0)
     manager_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'))
     
     manager = relationship("User")
@@ -510,6 +512,24 @@ class BroadcastReaction(Base):
 
 # Aliases
 Announcement = Broadcast
+
+
+# =============================================================================
+# JWT TOKEN BLACKLIST
+# =============================================================================
+
+class BlacklistedToken(Base):
+    """Blacklisted JWT tokens for logout invalidation"""
+    __tablename__ = 'blacklisted_tokens'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    jti = Column(String(255), unique=True, nullable=False, index=True)  # JWT Token ID
+    token_type = Column(String(10))  # 'access' or 'refresh'
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=True)
+    blacklisted_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime)  # For automatic cleanup of expired entries
+    
+    user = relationship("User")
 
 
 # Create all tables

@@ -23,8 +23,12 @@ from database import (
     Holiday, Department, TeamMember,
     # New modules
     SalaryStructure, Payroll, Task, PerformanceReview,
-    Document, SystemSettings, Notification, Broadcast,BreakSession,
-    Announcement
+    Document, SystemSettings, Notification, Broadcast, BreakSession,
+    Announcement, BlacklistedToken
+)
+from auth import (
+    generate_tokens, verify_token, blacklist_token,
+    refresh_access_token, jwt_required, role_required, permission_required
 )
 
 # Create a Flask application instance
@@ -34,7 +38,6 @@ from admin_endpoints import register_admin_endpoints
 register_admin_endpoints(app)
 
 # Register admin leave workflow endpoints (admin → manager approval flow)
-from admin_leave_workflow_endpoints import register_admin_workflow_endpoints
 # We'll register after decorators are defined (need custom_admin_required)
 
 # ============================================================
@@ -55,7 +58,7 @@ def add_cors_headers(response):
         response.headers['Access-Control-Allow-Credentials'] = 'false'
 
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-User-Role, X-User-ID'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-User-Role, X-User-ID, X-User-Role'
     return response
 
 @app.before_request
@@ -112,34 +115,32 @@ def send_email(to_email, subject, body):
 # Database tables will be initialized when app starts
 
 
-# --- CUSTOM, TEMPORARY INSECURE DECORATORS ---
+# --- AUTH DECORATORS (from auth.py) ---
+# jwt_required, role_required, permission_required are imported from auth.py
+# Keeping custom_admin_required as a wrapper for backward compat with admin_leave_workflow_endpoints
 def custom_admin_required():
+    """Backward-compatible wrapper that uses JWT auth internally"""
     def wrapper(fn):
         @wraps(fn)
+        @jwt_required()
+        @role_required('admin')
         def decorator(*args, **kwargs):
-            if request.headers.get('X-User-Role') == 'admin':
-                return fn(*args, **kwargs)
-            else:
-                return jsonify({"message": "Admin access required"}), 403
+            return fn(*args, **kwargs)
         return decorator
     return wrapper
 
 def custom_user_required():
+    """Backward-compatible wrapper that uses JWT auth internally"""
     def wrapper(fn):
         @wraps(fn)
+        @jwt_required()
         def decorator(*args, **kwargs):
-            user_id = request.headers.get('X-User-ID')
-            if user_id:
-                request.current_user_id = int(user_id)
-                return fn(*args, **kwargs)
-            else:
-                return jsonify({"message": "Authentication required"}), 401
+            return fn(*args, **kwargs)
         return decorator
     return wrapper
-# --- END TEMPORARY DECORATORS ---
+# --- END AUTH DECORATORS ---
 
 # Now register the admin workflow endpoints (needs custom_admin_required decorator)
-register_admin_workflow_endpoints(app, custom_admin_required)
 
 # Register regularization approval/rejection endpoints with authorization checks
 # NOTE: Leave approval endpoints are already in this file (lines 1200-1290)
@@ -418,6 +419,100 @@ def get_today_attendance():
         return jsonify({}), 200
     finally:
         db.close()
+
+import calendar
+
+@app.route('/api/attendance_graph_stats', methods=['GET'])
+def get_attendance_graph_stats():
+    user_id = request.args.get('user_id')
+    db = SessionLocal()
+    try:
+        today = datetime.now().date()
+        query = db.query(Attendance)
+        
+        if user_id:
+            query = query.filter(Attendance.user_id == int(user_id))
+            
+        # Months Data (last 5 months)
+        months_data = []
+        for i in range(4, -1, -1):
+            target_date = today.replace(day=1) - timedelta(days=28 * i)
+            target_month = target_date.month
+            target_year = target_date.year
+            month_name = calendar.month_abbr[target_month]
+            
+            present_count = query.filter(
+                extract('month', Attendance.date) == target_month,
+                extract('year', Attendance.date) == target_year,
+                Attendance.check_in.isnot(None)
+            ).count()
+            
+            # Estimate: ~21 working days per month per employee
+            expected_days = 21 if user_id else 21 * db.query(User).count()
+            expected_days = max(1, expected_days)
+            
+            percent = min(100, (present_count / expected_days) * 100)
+            months_data.append({
+                "month": target_month,
+                "month_name": month_name,
+                "attendance_percentage": round(percent, 2)
+            })
+            
+        # Weeks Data (last 4 weeks)
+        weeks_data = []
+        for i in range(3, -1, -1):
+            start_week = today - timedelta(days=today.weekday()) - timedelta(days=7 * i)
+            end_week = start_week + timedelta(days=6)
+            
+            present_count = query.filter(
+                Attendance.date >= start_week,
+                Attendance.date <= end_week,
+                Attendance.check_in.isnot(None)
+            ).count()
+            
+            # 5 working days per week
+            expected_days = 5 if user_id else 5 * db.query(User).count()
+            expected_days = max(1, expected_days)
+            
+            percent = min(100, (present_count / expected_days) * 100)
+            # W1 is oldest week, W4 is current week
+            week_label = f"W{4 - i}"
+            weeks_data.append({
+                "label": week_label,
+                "value": round(percent, 2)
+            })
+            
+        # Days Data (last 5 days)
+        days_data = []
+        for i in range(4, -1, -1):
+            target_day = today - timedelta(days=i)
+            day_name = calendar.day_abbr[target_day.weekday()]
+            
+            present_count = query.filter(
+                Attendance.date == target_day,
+                Attendance.check_in.isnot(None)
+            ).count()
+            
+            expected_days = 1 if user_id else db.query(User).count()
+            expected_days = max(1, expected_days)
+            
+            percent = min(100, (present_count / expected_days) * 100)
+            days_data.append({
+                "label": day_name,
+                "value": round(percent, 2)
+            })
+            
+        return jsonify({
+            "months": months_data,
+            "weeks": weeks_data,
+            "days": days_data
+        }), 200
+        
+    except Exception as e:
+        print("Attendance stats error:", e)
+        return jsonify({"months": [], "weeks": [], "days": []}), 500
+    finally:
+        db.close()
         
 @app.route('/test_db_connection')
 def test_db_connection():
@@ -446,29 +541,29 @@ def register_user():
     username = data.get('username')
     password = data.get('password')
     email = data.get('email')
-    phone = data.get('phone')            # ⭐ ADDED
+    phone = data.get('phone')
     first_name = data.get('first_name')
     last_name = data.get('last_name')
     role = data.get('role', 'employee')
 
-    # Required field checks
-    if not username or not password or not email:
-        return jsonify({"message": "Username, password, and email are required."}), 400
+    if not username or not password or not email or not phone:
+        return jsonify({"message": "Username, password, email and phone are required."}), 400
 
-    if not phone:
-        return jsonify({"message": "Phone number is required."}), 400  # ⭐ ADDED
-
-    hashed_password = generate_password_hash(password)
-
-    db = None
+    db = SessionLocal()
     try:
-        db = SessionLocal()
+        # Check if signup is allowed
+        signup_setting = db.query(SystemSettings).filter(SystemSettings.setting_key == 'allow_signup').first()
+        is_disabled = signup_setting and signup_setting.setting_value.lower() in ['false', '0', 'no', 'disable', 'disabled']
+        
+        if is_disabled:
+            return jsonify({"message": "User registration is currently disabled by the administrator."}), 403
 
+        hashed_password = generate_password_hash(password)
         new_user = User(
             username=username,
             password_hash=hashed_password,
             email=email,
-            phone=phone,                   # ⭐ ADDED
+            phone=phone,
             first_name=first_name,
             last_name=last_name,
             role=role
@@ -485,12 +580,12 @@ def register_user():
 
     except IntegrityError:
         db.rollback()
-        return jsonify({"message": "Username or email or Phone number already exists. "}), 409
+        return jsonify({"message": "Username, email, or Phone number already exists."}), 409
 
     except Exception as e:
         if db:
             db.rollback()
-        return jsonify({"message": f"An unexpected error occurred: {str(e)}"}), 500
+        return jsonify({"message": f"Server error: {str(e)}"}), 500
 
     finally:
         if db:
@@ -658,8 +753,11 @@ def admin_google_register():
         return jsonify({"message": "Email is required"}), 400
 
     db = SessionLocal()
-
     try:
+        # Check if signup is allowed
+        signup_setting = db.query(SystemSettings).filter(SystemSettings.setting_key == 'allow_signup').first()
+        if signup_setting and signup_setting.setting_value.lower() == 'false':
+            return jsonify({"message": "User registration is currently disabled by the administrator."}), 403
         # Check if user exists
         user = db.query(User).filter(User.email == email).first()
 
@@ -708,8 +806,12 @@ def employee_google_register():
         return jsonify({"message": "Email is required"}), 400
 
     db = SessionLocal()
-
     try:
+        # Check if signup is allowed
+        signup_setting = db.query(SystemSettings).filter(SystemSettings.setting_key == 'allow_signup').first()
+        if signup_setting and signup_setting.setting_value.lower() == 'false':
+            return jsonify({"message": "User registration is currently disabled by the administrator."}), 403
+
         # Check if employee already exists
         user = db.query(User).filter(User.email == email).first()
 
@@ -788,11 +890,13 @@ def google_login():
         user = db.query(User).filter(User.email == email).first()
 
         if user:
+            tokens = generate_tokens(user.id, user.role)
             return jsonify({
                 "user_id": user.id,
                 "username": user.username,
                 "role": user.role,
-                "email": user.email
+                "email": user.email,
+                **tokens
             }), 200
 
         # Create new user (Google user → no password)
@@ -818,11 +922,13 @@ def google_login():
         db.commit()
         db.refresh(new_user)
 
+        tokens = generate_tokens(new_user.id, new_user.role)
         return jsonify({
             "user_id": new_user.id,
             "username": new_user.username,
             "role": new_user.role,
-            "email": new_user.email
+            "email": new_user.email,
+            **tokens
         }), 201
 
     except Exception as e:
@@ -853,7 +959,11 @@ def employee_login():
         ).first()
 
         if user and check_password_hash(user.password_hash, password):
-            return jsonify(user_id=user.id, role=user.role, username=user.username,email=user.email), 200
+            tokens = generate_tokens(user.id, user.role)
+            return jsonify(
+                user_id=user.id, role=user.role, username=user.username, email=user.email,
+                access_token=tokens['access_token'], refresh_token=tokens['refresh_token']
+            ), 200
         else:
             return jsonify({"message": "Invalid employee username/email or password."}), 401
     except Exception as e:
@@ -914,11 +1024,13 @@ def admin_google_login():
                 "message": "This email is not present in the database"
             }), 403
         
+        tokens = generate_tokens(user.id, user.role)
         return jsonify({
             "user_id": user.id,
             "username": user.username,
             "role": user.role,
-            "email": user.email
+            "email": user.email,
+            **tokens
         }), 200
     
 
@@ -978,11 +1090,13 @@ def employee_google_login():
 
         # EXISTING EMPLOYEE
         if user:
+            tokens = generate_tokens(user.id, user.role)
             return jsonify({
                 "user_id": user.id,
                 "username": user.username,
                 "role": user.role,
                 "email": user.email,
+                **tokens
             }), 200
 
         # 🆕 Create new employee
@@ -1008,11 +1122,13 @@ def employee_google_login():
         db.commit()
         db.refresh(new_user)
 
+        tokens = generate_tokens(new_user.id, new_user.role)
         return jsonify({
             "user_id": new_user.id,
             "username": new_user.username,
             "role": new_user.role,
-            "email": new_user.email
+            "email": new_user.email,
+            **tokens
         }), 201
 
          
@@ -1046,7 +1162,11 @@ def admin_login():
         ).first()
 
         if user and check_password_hash(user.password_hash, password):
-            return jsonify(user_id=user.id, role=user.role, username=user.username,email=user.email), 200
+            tokens = generate_tokens(user.id, user.role)
+            return jsonify(
+                user_id=user.id, role=user.role, username=user.username, email=user.email,
+                access_token=tokens['access_token'], refresh_token=tokens['refresh_token']
+            ), 200
         else:
             return jsonify({"message": "Invalid admin username/email or password."}), 401
     except Exception as e:
@@ -1056,12 +1176,12 @@ def admin_login():
         if db:
             db.close()
 
-# --- PROTECTED ROUTE (NOW USES TEMPORARY DECORATOR) ---
+# --- PROTECTED ROUTE (JWT PROTECTED) ---
 @app.route('/protected', methods=['GET'])
-@custom_user_required()
+@jwt_required()
 def protected():
-    user_id = request.headers.get('X-User-ID')
-    return jsonify(logged_in_as={'id': user_id, 'message': 'You have accessed a protected route with a custom header'}), 200
+    user_id = request.user_id
+    return jsonify(logged_in_as={'id': user_id, 'message': 'You have accessed a protected route'}), 200
 # --- END PROTECTED ROUTE ---
 
 
@@ -1520,7 +1640,17 @@ def approve_leave_request(request_id):
             balance.used = (balance.used or 0) + leave_request.num_days
             balance.balance = balance.balance - leave_request.num_days
 
+        # Create Notification
+        new_notif = Notification(
+            user_id=leave_request.user_id,
+            title="Leave Request Approved",
+            message=f"Your leave request for {leave_request.start_date} to {leave_request.end_date} has been approved.",
+            notification_type="leave",
+            link="/employee/leave-history"
+        )
+        db.add(new_notif)
         db.commit()
+        print(f"DEBUG: Created leave approval notification for user {leave_request.user_id}")
 
         return jsonify({"message": "Leave request approved successfully"}), 200
 
@@ -1584,7 +1714,17 @@ def reject_leave_request(request_id):
         leave_request.rejection_reason = reason
         leave_request.approved_by = int(final_approver_id) if final_approver_id else None
 
+        # Create Notification
+        new_notif = Notification(
+            user_id=leave_request.user_id,
+            title="Leave Request Rejected",
+            message=f"Your leave request for {leave_request.start_date} to {leave_request.end_date} has been rejected. Reason: {reason}",
+            notification_type="leave",
+            link="/employee/leave-history"
+        )
+        db.add(new_notif)
         db.commit()
+        print(f"DEBUG: Created leave rejection notification for user {leave_request.user_id}")
 
         return jsonify({"message": "Leave request rejected"}), 200
 
@@ -1782,6 +1922,104 @@ def get_admin_pending_counts():
         }), 200
     finally:
         db.close()
+
+@app.route('/api/leave_stats', methods=['GET'])
+def get_leave_stats():
+    """Return aggregated leave-days for last 5 months, current month weeks, and current week days.
+    Optional query param: user_id (or set X-User-ID header)."""
+    user_id = request.headers.get('X-User-ID') or request.args.get('user_id')
+
+    db = SessionLocal()
+    try:
+        now = datetime.now().date()
+
+        # Months: last 5 months including current
+        months = []
+        for offset in range(4, -1, -1):
+            # compute year/month for offset months ago
+            m = now.month - offset
+            y = now.year
+            while m <= 0:
+                m += 12
+                y -= 1
+
+            start = date(y, m, 1)
+            if m == 12:
+                next_month = date(y + 1, 1, 1)
+            else:
+                next_month = date(y, m + 1, 1)
+            end = next_month - timedelta(days=1)
+
+            q = db.query(func.coalesce(func.sum(LeaveRequest.num_days), 0)).filter(
+                LeaveRequest.status == 'approved',
+                LeaveRequest.start_date >= start,
+                LeaveRequest.start_date <= end,
+            )
+            if user_id:
+                try:
+                    q = q.filter(LeaveRequest.user_id == int(user_id))
+                except Exception:
+                    q = q.filter(LeaveRequest.user_id == user_id)
+
+            total_days = float(q.scalar() or 0)
+            months.append({"month": start.strftime('%b'), "value": round(total_days, 2)})
+
+        # Weeks: split current month into sequential weeks (W1..W5)
+        start_of_month = now.replace(day=1)
+        if start_of_month.month == 12:
+            first_next = date(start_of_month.year + 1, 1, 1)
+        else:
+            first_next = date(start_of_month.year, start_of_month.month + 1, 1)
+        month_end = first_next - timedelta(days=1)
+
+        weeks = []
+        ws = start_of_month
+        idx = 1
+        while ws <= month_end and idx <= 5:
+            we = min(ws + timedelta(days=6), month_end)
+            q = db.query(func.coalesce(func.sum(LeaveRequest.num_days), 0)).filter(
+                LeaveRequest.status == 'approved',
+                LeaveRequest.start_date >= ws,
+                LeaveRequest.start_date <= we,
+            )
+            if user_id:
+                try:
+                    q = q.filter(LeaveRequest.user_id == int(user_id))
+                except Exception:
+                    q = q.filter(LeaveRequest.user_id == user_id)
+
+            total_days = float(q.scalar() or 0)
+            weeks.append({"label": f"W{idx}", "value": round(total_days, 2)})
+            ws = we + timedelta(days=1)
+            idx += 1
+
+        # Days: current week Mon-Fri
+        wd = now.weekday()
+        monday = now - timedelta(days=wd)
+        days = []
+        for i in range(5):
+            d = monday + timedelta(days=i)
+            q = db.query(func.coalesce(func.sum(LeaveRequest.num_days), 0)).filter(
+                LeaveRequest.status == 'approved',
+                LeaveRequest.start_date == d,
+            )
+            if user_id:
+                try:
+                    q = q.filter(LeaveRequest.user_id == int(user_id))
+                except Exception:
+                    q = q.filter(LeaveRequest.user_id == user_id)
+
+            total_days = float(q.scalar() or 0)
+            days.append({"label": d.strftime('%a'), "value": round(total_days, 2)})
+
+        return jsonify({"months": months, "weeks": weeks, "days": days}), 200
+
+    except Exception as e:
+        print(f"Leave stats error: {str(e)}")
+        return jsonify({"months": [], "weeks": [], "days": []}), 200
+    finally:
+        db.close()
+
 
 @app.route('/api/who_is_on_leave', methods=['GET'])
 def get_who_is_on_leave():
@@ -2004,40 +2242,144 @@ def delete_regularization(reg_id):
 
 @app.route('/api/myholidays', methods=['GET'])
 def get_holidays():
-    """Get holidays from database"""
+    """Get holidays from database merged with Indian national/government holidays"""
     db = SessionLocal()
     try:
-        current_year = datetime.now().year
-        holidays = db.query(Holiday).filter(
+        year_param = request.args.get('year')
+        current_year = int(year_param) if year_param else datetime.now().year
+
+        # ── 1. Comprehensive Indian Government / National Observance Days ──
+        #    (Gazetted + widely observed days for the current year)
+        NATIONAL_HOLIDAYS = [
+            # JANUARY
+            {"date": f"{current_year}-01-01",  "title": "New Year's Day",      "type": "National"},
+            {"date": f"{current_year}-01-14",  "title": "Pongal / Makar Sankranti", "type": "National"},
+            {"date": f"{current_year}-01-15",  "title": "Army Day",            "type": "Observance"},
+            {"date": f"{current_year}-01-23",  "title": "Netaji Subhas Chandra Bose Jayanti", "type": "National"},
+            {"date": f"{current_year}-01-24",  "title": "National Girl Child Day", "type": "Observance"},
+            {"date": f"{current_year}-01-25",  "title": "National Voters' Day","type": "Observance"},
+            {"date": f"{current_year}-01-26",  "title": "Republic Day",        "type": "National"},
+            {"date": f"{current_year}-01-30",  "title": "Martyrs' Day (Mahatma Gandhi)", "type": "National"},
+            # FEBRUARY
+            {"date": f"{current_year}-02-04",  "title": "World Cancer Day",    "type": "Observance"},
+            {"date": f"{current_year}-02-14",  "title": "Valentine's Day",     "type": "Observance"},
+            {"date": f"{current_year}-02-19",  "title": "Chhatrapati Shivaji Maharaj Jayanti", "type": "National"},
+            {"date": f"{current_year}-02-20",  "title": "Arunachal Pradesh Statehood Day", "type": "Observance"},
+            {"date": f"{current_year}-02-28",  "title": "National Science Day", "type": "Observance"},
+            # MARCH
+            {"date": f"{current_year}-03-01",  "title": "Holi",               "type": "National"},
+            {"date": f"{current_year}-03-04",  "title": "Maha Shivaratri",     "type": "National"},
+            {"date": f"{current_year}-03-08",  "title": "International Women's Day", "type": "Observance"},
+            {"date": f"{current_year}-03-15",  "title": "World Consumer Rights Day", "type": "Observance"},
+            {"date": f"{current_year}-03-22",  "title": "Bihar Diwas / World Water Day", "type": "Observance"},
+            {"date": f"{current_year}-03-30",  "title": "Ram Navami",          "type": "National"},
+            # APRIL
+            {"date": f"{current_year}-04-03",  "title": "Good Friday",         "type": "National"},
+            {"date": f"{current_year}-04-05",  "title": "Easter Saturday",     "type": "Observance"},
+            {"date": f"{current_year}-04-06",  "title": "Mahavir Jayanti",     "type": "National"},
+            {"date": f"{current_year}-04-07",  "title": "World Health Day",    "type": "Observance"},
+            {"date": f"{current_year}-04-14",  "title": "Dr. B.R. Ambedkar Jayanti / Tamil New Year", "type": "National"},
+            {"date": f"{current_year}-04-22",  "title": "Earth Day",           "type": "Observance"},
+            # MAY
+            {"date": f"{current_year}-05-01",  "title": "International Labour Day / Maharashtra Day", "type": "National"},
+            {"date": f"{current_year}-05-07",  "title": "Rabindranath Tagore Jayanti", "type": "National"},
+            {"date": f"{current_year}-05-11",  "title": "National Technology Day", "type": "Observance"},
+            {"date": f"{current_year}-05-12",  "title": "International Nurses Day", "type": "Observance"},
+            {"date": f"{current_year}-05-31",  "title": "World No Tobacco Day", "type": "Observance"},
+            # JUNE
+            {"date": f"{current_year}-06-01",  "title": "World Milk Day",      "type": "Observance"},
+            {"date": f"{current_year}-06-05",  "title": "World Environment Day", "type": "Observance"},
+            {"date": f"{current_year}-06-21",  "title": "International Yoga Day", "type": "National"},
+            {"date": f"{current_year}-06-23",  "title": "Rath Yatra",          "type": "National"},
+            # JULY
+            {"date": f"{current_year}-07-01",  "title": "National Doctor's Day / Chartered Accountants Day", "type": "Observance"},
+            {"date": f"{current_year}-07-11",  "title": "World Population Day", "type": "Observance"},
+            {"date": f"{current_year}-07-18",  "title": "Nelson Mandela International Day", "type": "Observance"},
+            {"date": f"{current_year}-07-26",  "title": "Kargil Vijay Diwas",  "type": "National"},
+            # AUGUST
+            {"date": f"{current_year}-08-09",  "title": "Quit India Movement Day / Nagasaki Day", "type": "National"},
+            {"date": f"{current_year}-08-12",  "title": "International Youth Day", "type": "Observance"},
+            {"date": f"{current_year}-08-15",  "title": "Independence Day",    "type": "National"},
+            {"date": f"{current_year}-08-19",  "title": "Janmashtami",         "type": "National"},
+            {"date": f"{current_year}-08-29",  "title": "National Sports Day (Dhyan Chand Jayanti)", "type": "National"},
+            # SEPTEMBER
+            {"date": f"{current_year}-09-02",  "title": "Onam",               "type": "National"},
+            {"date": f"{current_year}-09-05",  "title": "Teachers' Day (Dr. Radhakrishnan Jayanti)", "type": "National"},
+            {"date": f"{current_year}-09-08",  "title": "International Literacy Day", "type": "Observance"},
+            {"date": f"{current_year}-09-14",  "title": "Hindi Diwas",         "type": "National"},
+            {"date": f"{current_year}-09-16",  "title": "Ganesh Chaturthi",    "type": "National"},
+            {"date": f"{current_year}-09-25",  "title": "Antyodaya Diwas (Deendayal Upadhyaya Jayanti)", "type": "Observance"},
+            # OCTOBER
+            {"date": f"{current_year}-10-02",  "title": "Gandhi Jayanti / Lal Bahadur Shastri Jayanti", "type": "National"},
+            {"date": f"{current_year}-10-08",  "title": "Indian Air Force Day", "type": "National"},
+            {"date": f"{current_year}-10-11",  "title": "Navratri Begins / Durga Puja",     "type": "National"},
+            {"date": f"{current_year}-10-16",  "title": "World Food Day",      "type": "Observance"},
+            {"date": f"{current_year}-10-19",  "title": "Ayudha Puja / Maha Navami", "type": "National"},
+            {"date": f"{current_year}-10-20",  "title": "Dussehra / Vijayadasami / Saraswati Puja", "type": "National"},
+            {"date": f"{current_year}-10-31",  "title": "Sardar Vallabhbhai Patel Jayanti / National Unity Day", "type": "National"},
+            # NOVEMBER
+            {"date": f"{current_year}-11-08",  "title": "Diwali",             "type": "National"},
+            {"date": f"{current_year}-11-09",  "title": "Bhai Dooj",          "type": "National"},
+            {"date": f"{current_year}-11-14",  "title": "Children's Day (Nehru Jayanti)", "type": "National"},
+            {"date": f"{current_year}-11-17",  "title": "Guru Nanak Jayanti", "type": "National"},
+            {"date": f"{current_year}-11-19",  "title": "National Integration Day", "type": "Observance"},
+            {"date": f"{current_year}-11-26",  "title": "Constitution Day (Samvidhan Diwas)", "type": "National"},
+            # DECEMBER
+            {"date": f"{current_year}-12-01",  "title": "World AIDS Day",     "type": "Observance"},
+            {"date": f"{current_year}-12-04",  "title": "Indian Navy Day",    "type": "National"},
+            {"date": f"{current_year}-12-10",  "title": "Human Rights Day",   "type": "Observance"},
+            {"date": f"{current_year}-12-16",  "title": "Vijay Diwas (1971 War Victory)", "type": "National"},
+            {"date": f"{current_year}-12-19",  "title": "Goa Liberation Day", "type": "Observance"},
+            {"date": f"{current_year}-12-22",  "title": "National Mathematics Day (Ramanujan Jayanti)", "type": "Observance"},
+            {"date": f"{current_year}-12-23",  "title": "Kisan Diwas (National Farmers Day)", "type": "National"},
+            {"date": f"{current_year}-12-25",  "title": "Christmas Day",      "type": "National"},
+        ]
+
+        # Build a date→national_holiday map
+        national_map = {}
+        for idx, nh in enumerate(NATIONAL_HOLIDAYS):
+            try:
+                d = datetime.strptime(nh["date"], "%Y-%m-%d").date()
+                national_map[nh["date"]] = {
+                    "id": f"nat-{idx}",
+                    "date": d.strftime('%d %B, %A'),
+                    "full_date": nh["date"],
+                    "title": nh["title"],
+                    "type": nh["type"],
+                    "source": "national"
+                }
+            except Exception:
+                pass
+
+        # ── 2. Custom holidays from database ──
+        db_holidays = db.query(Holiday).filter(
             Holiday.year == current_year
         ).order_by(Holiday.date).all()
-        
-        holiday_data = []
-        for h in holidays:
-            # Format date like "01 January, Wednesday"
-            date_str = h.date.strftime('%d %B, %A')
+
+        db_map = {}
+        for h in db_holidays:
+            date_key = h.date.isoformat()
             holiday_type = "Restricted" if h.is_optional else "Mandatory"
-            holiday_data.append({
+            db_map[date_key] = {
                 "id": h.id,
-                "date": date_str,
+                "date": h.date.strftime('%d %B, %A'),
+                "full_date": date_key,
                 "title": h.title,
-                "type": holiday_type
-            })
-        
-        # If no holidays in DB, provide default list
-        if not holiday_data:
-            holiday_data = [
-                {"id": 1, "date": "01 January, Wednesday", "title": "New Year's Day"},
-                {"id": 2, "date": "26 January, Sunday", "title": "Republic Day"},
-                {"id": 3, "date": "15 August, Friday", "title": "Independence Day"},
-                {"id": 4, "date": "02 October, Thursday", "title": "Gandhi Jayanti"},
-                {"id": 5, "date": "25 December, Thursday", "title": "Christmas Day"},
-            ]
-        
+                "type": holiday_type,
+                "source": "custom"
+            }
+
+        # ── 3. Merge: DB custom holidays override national ones on same date ──
+        merged = dict(national_map)
+        merged.update(db_map)
+
+        # Sort by date
+        holiday_data = sorted(merged.values(), key=lambda x: x["full_date"])
+
         return jsonify(holiday_data), 200
-        
+
     except Exception as e:
-        print(f"Holidays error: {str(e)}")
+        print(f"Holidays error: {str(e)}") 
         return jsonify([]), 200
     finally:
         db.close()
@@ -2354,83 +2696,7 @@ def update_employee(user_id):
         db.close()
 
 
-@app.route('/admin_profile/<int:user_id>', methods=['GET'])
-def get_admin_profile(user_id):
-    """Get full employee profile data (Admin view)"""
-    db = SessionLocal()
-    try:
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            return jsonify({"message": "User not found"}), 404
-            
-        profile = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user_id).first()
-        
-        # Helper for names
-        def get_name(u_id):
-            if not u_id: return ""
-            u = db.query(User).filter(User.id == u_id).first()
-            return f"{u.first_name or ''} {u.last_name or ''}".strip() or u.username if u else ""
-
-        from datetime import datetime
-        # Format data to match frontend's expected structure
-        result = {
-            "profile": {
-                "user_id": user.id,
-                "name": f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username,
-                "first_name": user.first_name or "",
-                "last_name": user.last_name or "",
-                "email": user.email or "",
-                "phone": user.phone or "",
-                "empId": profile.emp_id if profile else "",
-                "position": profile.position if profile else "",
-                "empType": profile.emp_type if profile else "",
-                "department": profile.department if profile else "",
-                "status": profile.status if profile else "Active",
-                "gender": profile.gender if profile else "",
-                "dob": profile.dob.strftime('%d/%m/%Y') if profile and profile.dob else "Not Set",
-                "bloodGroup": profile.blood_group if profile else "",
-                "maritalStatus": profile.marital_status if profile else "",
-                "address": profile.address if profile else "",
-                "location": profile.location if profile else "",
-                "emergencyContactNumber": profile.emergency_contact if profile else "",
-                "relationship": profile.emergency_relationship if profile else "",
-                "supervisor": get_name(profile.supervisor_id) if profile else "",
-                "hrManager": get_name(profile.hr_manager_id) if profile else "",
-                "profileImage": profile.profile_image if profile else ""
-            },
-            "education": {
-                "institution": profile.institution if profile else "",
-                "eduStartDate": profile.edu_start_date.strftime('%d/%m/%Y') if profile and profile.edu_start_date else "N/A",
-                "eduEndDate": profile.edu_end_date.strftime('%d/%m/%Y') if profile and profile.edu_end_date else "N/A",
-                "qualification": profile.qualification if profile else "",
-                "specialization": profile.specialization if profile else "",
-                "skills": profile.skills.split(',') if profile and profile.skills else [],
-                "portfolio": profile.portfolio if profile else ""
-            },
-            "experience": {
-                "company": profile.prev_company if profile else "",
-                "jobTitle": profile.prev_job_title if profile else "",
-                "expStartDate": profile.exp_start_date.strftime('%d/%m/%Y') if profile and profile.exp_start_date else "N/A",
-                "expEndDate": profile.exp_end_date.strftime('%d/%m/%Y') if profile and profile.exp_end_date else "N/A",
-                "responsibilities": profile.responsibilities if profile else "",
-                "totalYears": str(profile.total_experience_years) if profile and profile.total_experience_years else ""
-            },
-            "bank": {
-                "bankName": profile.bank_name if profile else "",
-                "branch": profile.bank_branch if profile else "",
-                "accountNumber": profile.account_number if profile else "",
-                "ifsc": profile.ifsc_code if profile else "",
-                "aadhaar": profile.aadhaar_number if profile else "",
-                "pan": profile.pan_number if profile else ""
-            },
-            "documents": []
-        }
-        return jsonify(result), 200
-    except Exception as e:
-        print(f"Error in get_admin_profile: {str(e)}")
-        return jsonify({"message": f"Error: {str(e)}"}), 500
-    finally:
-        db.close()
+# Redundant endpoint removed. Using get_admin_profile_data instead.
 
 
 # datas for attendance page in admin section
@@ -2668,8 +2934,47 @@ def get_my_team_la():
         member_ids = [tm.member_id for tm in team_members]
         
         if not member_ids:
-            # If no team members defined, return empty or all employees if admin
-            return jsonify([]), 200
+            # If no team members defined, return all leave requests for admin
+            user_role = request.headers.get('X-User-Role', '')
+            if user_role == 'admin':
+                # Admin sees all leave requests
+                requests_data = db.query(LeaveRequest, User, LeaveType).join(
+                    User, LeaveRequest.user_id == User.id
+                ).join(
+                    LeaveType, LeaveRequest.leave_type_id == LeaveType.id
+                ).order_by(LeaveRequest.applied_date.desc()).all()
+                
+                my_team_la = []
+                for idx, (req, user, leave_type) in enumerate(requests_data, 1):
+                    profile = db.query(EmployeeProfile).filter(
+                        EmployeeProfile.user_id == user.id
+                    ).first()
+                    
+                    name = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username
+                    emp_id = profile.emp_id if profile and profile.emp_id else str(user.id)
+                    image = profile.profile_image if profile and profile.profile_image else f"https://i.pravatar.cc/40?u={user.id}"
+                    
+                    my_team_la.append({
+                        "id": req.id,
+                        "name": name,
+                        "empId": emp_id,
+                        "type": leave_type.name,
+                        "from": req.start_date.strftime('%d-%m-%Y'),
+                        "to": req.end_date.strftime('%d-%m-%Y'),
+                        "days": f"{req.num_days} Day(s)",
+                        "session": "Full Day",
+                        "date": f"{req.start_date.strftime('%d-%m-%Y')}/Full Day",
+                        "request": req.applied_date.strftime('%d-%m-%Y') if req.applied_date else "",
+                        "notify": "HR Head",
+                        "document": "",
+                        "reason": req.reason or "",
+                        "status": req.status.capitalize() if req.status else "Pending",
+                        "image": image
+                    })
+                
+                return jsonify(my_team_la), 200
+            else:
+                return jsonify([]), 200
         
         # Get leave requests for team members
         requests_data = db.query(LeaveRequest, User, LeaveType).join(
@@ -2846,7 +3151,28 @@ def update_regularization_status(request_id):
                 pass
         req.approval_date = datetime.utcnow()
         db.commit()
-        
+
+        # Create Notification
+        try:
+            notif_title = f"Regularization Request {status.capitalize()}"
+            notif_message = f"Your regularization request for {req.date} has been {status}."
+            if reason:
+                notif_message += f" Reason: {reason}"
+                
+            new_notif = Notification(
+                user_id=req.user_id,
+                title=notif_title,
+                message=notif_message,
+                notification_type="attendance",
+                link="/employee/my-regularization"
+            )
+            db.add(new_notif)
+            db.commit()
+            print(f"DEBUG: Created regularization notification for user {req.user_id} (Status: {status})")
+        except Exception as notif_err:
+            print(f"Error creating regularization notification: {notif_err}")
+            # Don't fail the main request if notification fails
+
         return jsonify({"message": f"Regularization {status} successfully"}), 200
         
     except Exception as e:
@@ -2861,7 +3187,7 @@ def update_regularization_status(request_id):
 
 # --- Admin Profile Endpoint ---
 @app.route('/admin_profile/<int:user_id>', methods=['GET'])
-@custom_admin_required()
+@custom_user_required()
 def get_admin_profile_data(user_id):
     """
     Returns admin profile data for the specified user from database.
@@ -2966,14 +3292,14 @@ def get_admin_profile_data(user_id):
 
 # --- Employee Profile Endpoint ---
 @app.route('/employee_profile/<int:user_id>', methods=['GET'])
-@custom_user_required()
+@jwt_required()
 def get_employee_profile_data(user_id):
     """
     Returns employee profile data for the specified user from database.
     """
     # Check if the requesting user is accessing their own profile
-    current_user_id = request.current_user_id
-    if current_user_id != user_id and request.headers.get('X-User-Role') != 'admin':
+    current_user_id = request.user_id
+    if current_user_id != user_id and request.user_role != 'admin':
         return jsonify({"message": "Unauthorized to view this profile."}), 403
     
     db = None
@@ -2983,55 +3309,145 @@ def get_employee_profile_data(user_id):
         
         if not user:
             return jsonify({"message": "User not found"}), 404
+            
+        profile = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user_id).first()
+        documents_list = db.query(Document).filter(Document.user_id == user_id).all()
         
-        # Return only data from database, empty strings for fields not in database
+        # Format profile data
+        profile_data = {
+            "profileImage": profile.profile_image if profile else "",
+            "name": f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username,
+            "gender": profile.gender if profile else "",
+            "dob": profile.dob.strftime('%Y-%m-%d') if profile and profile.dob else "",
+            "maritalStatus": profile.marital_status if profile else "",
+            "nationality": profile.nationality if profile else "",
+            "bloodGroup": profile.blood_group if profile else "",
+            "email": user.email or "",
+            "phone": user.phone or "",
+            "address": profile.address if profile else "",
+            "emergencyContactNumber": profile.emergency_contact if profile else "",
+            "relationship": profile.emergency_relationship if profile else "",
+            "empType": profile.emp_type if profile else "",
+            "department": profile.department if profile else "",
+            "location": profile.location if profile else "",
+            "supervisor": profile.supervisor_id if profile else "",
+            "hrManager": profile.hr_manager_id if profile else "",
+            "empId": profile.emp_id if profile and profile.emp_id else str(user.id),
+            "status": profile.status if profile else "Active"
+        }
+        
+        education_data = {
+            "institution": profile.institution if profile else "",
+            "location": profile.edu_location if profile else "",
+            "startDate": profile.edu_start_date.strftime('%Y-%m-%d') if profile and profile.edu_start_date else "",
+            "endDate": profile.edu_end_date.strftime('%Y-%m-%d') if profile and profile.edu_end_date else "",
+            "qualification": profile.qualification if profile else "",
+            "specialization": profile.specialization if profile else "",
+            "skills": profile.skills.split(',') if profile and profile.skills else [],
+            "portfolio": profile.portfolio if profile else ""
+        }
+        
+        experience_data = {
+            "company": profile.prev_company if profile else "",
+            "jobTitle": profile.prev_job_title if profile else "",
+            "startDate": profile.exp_start_date.strftime('%Y-%m-%d') if profile and profile.exp_start_date else "",
+            "endDate": profile.exp_end_date.strftime('%Y-%m-%d') if profile and profile.exp_end_date else "",
+            "responsibilities": profile.responsibilities if profile else "",
+            "totalYears": str(profile.total_experience_years) if profile and profile.total_experience_years else ""
+        }
+        
+        bank_data = {
+            "bankName": profile.bank_name if profile else "",
+            "branch": profile.bank_branch if profile else "",
+            "accountNumber": profile.account_number if profile else "",
+            "ifsc": profile.ifsc_code if profile else "",
+            "aadhaar": profile.aadhaar_number if profile else "",
+            "pan": profile.pan_number if profile else ""
+        }
+        
+        docs_data = []
+        for doc in documents_list:
+            docs_data.append({
+                "id": doc.id,
+                "fileName": doc.file_name,
+                "type": doc.document_type,
+                "size": str(doc.file_size // 1024) if doc.file_size else "0",
+                "status": "Completed" if doc.is_verified else "Uploaded"
+            })
+        
+        # Fetch employee profile data from database
+        emp_profile = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user_id).first()
+        
+        # Parse skills from JSON string if stored
+        skills_list = emp_profile.skills if emp_profile and emp_profile.skills else ""
+        
+        # Get supervisor name
+        supervisor_name = ""
+        if emp_profile and emp_profile.supervisor:
+            supervisor_user = emp_profile.supervisor
+            supervisor_name = (
+                f"{supervisor_user.first_name or ''} {supervisor_user.last_name or ''}"
+            ).strip() or supervisor_user.username
+
+        # Get HR manager name
+        hr_manager_name = ""
+        if emp_profile and emp_profile.hr_manager:
+            hr_user = emp_profile.hr_manager
+            hr_manager_name = (
+                f"{hr_user.first_name or ''} {hr_user.last_name or ''}"
+            ).strip() or hr_user.username
+        
+        # Return data from database
         employee_profile_data = {
             "profile": {
-                "profileImage": "",
+                "profileImage": emp_profile.profile_image if emp_profile and emp_profile.profile_image else "",
                 "name": f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username,
-                "gender": "",
-                "dob": "",
-                "maritalStatus": "",
-                "nationality": "",
-                "bloodGroup": "",
+                "gender": emp_profile.gender if emp_profile and emp_profile.gender else "",
+                "dob": emp_profile.dob.strftime('%Y-%m-%d') if emp_profile and emp_profile.dob else "",
+                "maritalStatus": emp_profile.marital_status if emp_profile and emp_profile.marital_status else "",
+                "nationality": emp_profile.nationality if emp_profile and emp_profile.nationality else "",
+                "bloodGroup": emp_profile.blood_group if emp_profile and emp_profile.blood_group else "",
                 "email": user.email or "",
-                "phone": "",
-                "address": "",
-                "emergencyContactNumber": "",
-                "relationship": "",
-                "empType": "",
-                "department": "",
-                "location": "",
-                "supervisor": "",
-                "hrManager": "",
-                "empId": str(user.id) if user.id else "",
-                "status": ""
+                "phone": user.phone or "",
+                "address": emp_profile.address if emp_profile and emp_profile.address else "",
+                "emergencyContactNumber": emp_profile.emergency_contact if emp_profile and emp_profile.emergency_contact else "",
+                "relationship": emp_profile.emergency_relationship if emp_profile and emp_profile.emergency_relationship else "",
+                "empType": emp_profile.emp_type if emp_profile and emp_profile.emp_type else "",
+                "department": emp_profile.department if emp_profile and emp_profile.department else "",
+                "location": emp_profile.location if emp_profile and emp_profile.location else "",
+                "supervisor": supervisor_name,
+                "hrManager": hr_manager_name,
+                "supervisor_id": emp_profile.supervisor_id if emp_profile else None,
+                "hr_manager_id": emp_profile.hr_manager_id if emp_profile else None,
+                "empId": emp_profile.emp_id if emp_profile and emp_profile.emp_id else str(user.id),
+                "status": emp_profile.status if emp_profile and emp_profile.status else "Active",
+                "position": emp_profile.position if emp_profile and emp_profile.position else "",
             },
             "education": {
-                "institution": "",
-                "location": "",
-                "startDate": "",
-                "endDate": "",
-                "qualification": "",
-                "specialization": "",
-                "skills": [],
-                "portfolio": ""
+                "institution": emp_profile.institution if emp_profile and emp_profile.institution else "",
+                "location": emp_profile.edu_location if emp_profile and emp_profile.edu_location else "",
+                "eduStartDate": emp_profile.edu_start_date.strftime('%Y-%m-%d') if emp_profile and emp_profile.edu_start_date else "",
+                "eduEndDate": emp_profile.edu_end_date.strftime('%Y-%m-%d') if emp_profile and emp_profile.edu_end_date else "",
+                "qualification": emp_profile.qualification if emp_profile and emp_profile.qualification else "",
+                "specialization": emp_profile.specialization if emp_profile and emp_profile.specialization else "",
+                "skills": skills_list,
+                "portfolio": emp_profile.portfolio if emp_profile and emp_profile.portfolio else ""
             },
             "experience": {
-                "company": "",
-                "jobTitle": "",
-                "startDate": "",
-                "endDate": "",
-                "responsibilities": "",
-                "totalYears": ""
+                "company": emp_profile.prev_company if emp_profile and emp_profile.prev_company else "",
+                "jobTitle": emp_profile.prev_job_title if emp_profile and emp_profile.prev_job_title else "",
+                "expStartDate": emp_profile.exp_start_date.strftime('%Y-%m-%d') if emp_profile and emp_profile.exp_start_date else "",
+                "expEndDate": emp_profile.exp_end_date.strftime('%Y-%m-%d') if emp_profile and emp_profile.exp_end_date else "",
+                "responsibilities": emp_profile.responsibilities if emp_profile and emp_profile.responsibilities else "",
+                "totalYears": str(emp_profile.total_experience_years) if emp_profile and emp_profile.total_experience_years else ""
             },
             "bank": {
-                "bankName": "",
-                "branch": "",
-                "accountNumber": "",
-                "ifsc": "",
-                "aadhaar": "",
-                "pan": ""
+                "bankName": emp_profile.bank_name if emp_profile and emp_profile.bank_name else "",
+                "branch": emp_profile.bank_branch if emp_profile and emp_profile.bank_branch else "",
+                "accountNumber": emp_profile.account_number if emp_profile and emp_profile.account_number else "",
+                "ifsc": emp_profile.ifsc_code if emp_profile and emp_profile.ifsc_code else "",
+                "aadhaar": emp_profile.aadhaar_number if emp_profile and emp_profile.aadhaar_number else "",
+                "pan": emp_profile.pan_number if emp_profile and emp_profile.pan_number else ""
             },
             "documents": []
         }
@@ -3040,6 +3456,7 @@ def get_employee_profile_data(user_id):
     except Exception as e:
         if db:
             db.rollback()
+        print(f"Error getting employee profile: {str(e)}")
         return jsonify({"message": f"An error occurred: {str(e)}"}), 500
     finally:
         if db:
@@ -3746,36 +4163,72 @@ def verify_document(doc_id):
 
 @app.route('/api/employee_profile/<int:user_id>', methods=['PUT'])
 def update_employee_profile(user_id):
-    """Update employee profile"""
+    """Update employee profile with nested content"""
     data = request.get_json()
     db = SessionLocal()
     try:
         profile = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user_id).first()
         
         if not profile:
-            # Create if doesn't exist
             profile = EmployeeProfile(user_id=user_id)
             db.add(profile)
         
-        # Update fields if provided
-        updateable_fields = [
-            'emp_id', 'gender', 'dob', 'marital_status', 'nationality', 'blood_group',
-            'address', 'emergency_contact', 'emergency_relationship', 'emp_type',
-            'department', 'position', 'location', 'status', 'profile_image',
-            'institution', 'edu_location', 'edu_start_date', 'edu_end_date',
-            'qualification', 'specialization', 'skills', 'portfolio',
-            'prev_company', 'prev_job_title', 'exp_start_date', 'exp_end_date',
-            'responsibilities', 'total_experience_years',
-            'bank_name', 'bank_branch', 'account_number', 'ifsc_code',
-            'aadhaar_number', 'pan_number'
-        ]
-        
-        for field in updateable_fields:
-            if field in data:
-                if field in ['dob', 'edu_start_date', 'edu_end_date', 'exp_start_date', 'exp_end_date'] and data[field]:
-                    setattr(profile, field, datetime.strptime(data[field], '%Y-%m-%d').date())
+        # Update Personal Profile
+        if 'profile' in data:
+            p = data['profile']
+            if 'gender' in p: profile.gender = p['gender']
+            if 'dob' in p and p['dob']: profile.dob = datetime.strptime(p['dob'], '%Y-%m-%d').date()
+            if 'maritalStatus' in p: profile.marital_status = p['maritalStatus']
+            if 'nationality' in p: profile.nationality = p['nationality']
+            if 'bloodGroup' in p: profile.blood_group = p['bloodGroup']
+            if 'address' in p: profile.address = p['address']
+            if 'emergencyContactNumber' in p: profile.emergency_contact = p['emergencyContactNumber']
+            if 'relationship' in p: profile.emergency_relationship = p['relationship']
+            if 'empType' in p: profile.emp_type = p['empType']
+            if 'department' in p: profile.department = p['department']
+            if 'location' in p: profile.location = p['location']
+            if 'status' in p: profile.status = p['status']
+            if 'profileImage' in p: profile.profile_image = p['profileImage']
+            if 'empId' in p: profile.emp_id = p['empId']
+
+        # Update Education
+        if 'education' in data:
+            e = data['education']
+            if 'institution' in e: profile.institution = e['institution']
+            if 'location' in e: profile.edu_location = e['location']
+            if 'startDate' in e and e['startDate']: profile.edu_start_date = datetime.strptime(e['startDate'], '%Y-%m-%d').date()
+            if 'endDate' in e and e['endDate']: profile.edu_end_date = datetime.strptime(e['endDate'], '%Y-%m-%d').date()
+            if 'qualification' in e: profile.qualification = e['qualification']
+            if 'specialization' in e: profile.specialization = e['specialization']
+            if 'skills' in e: 
+                skills = e['skills']
+                if isinstance(skills, list):
+                    profile.skills = ','.join(skills)
                 else:
-                    setattr(profile, field, data[field])
+                    profile.skills = str(skills)
+            if 'portfolio' in e: profile.portfolio = e['portfolio']
+
+        # Update Experience
+        if 'experience' in data:
+            ex = data['experience']
+            if 'company' in ex: profile.prev_company = ex['company']
+            if 'jobTitle' in ex: profile.prev_job_title = ex['jobTitle']
+            if 'startDate' in ex and ex['startDate']: profile.exp_start_date = datetime.strptime(ex['startDate'], '%Y-%m-%d').date()
+            if 'endDate' in ex and ex['endDate']: profile.exp_end_date = datetime.strptime(ex['endDate'], '%Y-%m-%d').date()
+            if 'responsibilities' in ex: profile.responsibilities = ex['responsibilities']
+            if 'totalYears' in ex and ex['totalYears']:
+                try: profile.total_experience_years = float(ex['totalYears'])
+                except: pass
+
+        # Update Bank Details
+        if 'bank' in data:
+            b = data['bank']
+            if 'bankName' in b: profile.bank_name = b['bankName']
+            if 'branch' in b: profile.bank_branch = b['branch']
+            if 'accountNumber' in b: profile.account_number = b['accountNumber']
+            if 'ifsc' in b: profile.ifsc_code = b['ifsc']
+            if 'aadhaar' in b: profile.aadhaar_number = b['aadhaar']
+            if 'pan' in b: profile.pan_number = b['pan']
         
         db.commit()
         return jsonify({"message": "Profile updated successfully"}), 200
@@ -3873,6 +4326,7 @@ def update_settings():
 def get_notifications():
     """Get notifications for a user"""
     user_id = request.headers.get('X-User-ID')
+    print(f"DEBUG: Fetching notifications for user_id={user_id}")
     if not user_id:
         return jsonify({"message": "User ID required"}), 400
     
@@ -3881,6 +4335,8 @@ def get_notifications():
         notifications = db.query(Notification).filter(
             Notification.user_id == int(user_id)
         ).order_by(Notification.created_at.desc()).limit(50).all()
+        
+        print(f"DEBUG: Found {len(notifications)} notifications for user {user_id}")
         
         result = []
         for n in notifications:
@@ -4063,6 +4519,64 @@ def get_all_announcements():
     finally:
         db.close()
 
+# =============================================================================
+# JWT TOKEN ENDPOINTS
+# =============================================================================
+
+@app.route('/api/refresh', methods=['POST'])
+def refresh_token_endpoint():
+    """Refresh an expired access token using a valid refresh token"""
+    data = request.get_json()
+    if not data or not data.get('refresh_token'):
+        return jsonify({"message": "Refresh token is required"}), 400
+    
+    new_access_token, error = refresh_access_token(data['refresh_token'])
+    if error:
+        return jsonify({"message": error}), 401
+    
+    return jsonify({"access_token": new_access_token}), 200
+
+
+@app.route('/api/logout', methods=['POST'])
+def logout_endpoint():
+    """Logout by blacklisting the current access and refresh tokens"""
+    # Blacklist access token from Authorization header
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        access_token = auth_header.split(' ', 1)[1]
+        try:
+            import jwt as pyjwt
+            payload = pyjwt.decode(access_token, options={"verify_exp": False}, algorithms=["HS256"],
+                                   key=os.getenv('JWT_SECRET_KEY', 'stafio_jwt_secret_key_2026_change_in_production'))
+            blacklist_token(
+                jti=payload.get('jti'),
+                token_type='access',
+                user_id=payload.get('user_id'),
+                expires_at=datetime.utcfromtimestamp(payload.get('exp', 0))
+            )
+        except Exception:
+            pass  # If token is already invalid, that's fine
+    
+    # Blacklist refresh token from request body
+    data = request.get_json() or {}
+    refresh_token_str = data.get('refresh_token')
+    if refresh_token_str:
+        try:
+            import jwt as pyjwt
+            payload = pyjwt.decode(refresh_token_str, options={"verify_exp": False}, algorithms=["HS256"],
+                                   key=os.getenv('JWT_SECRET_KEY', 'stafio_jwt_secret_key_2026_change_in_production'))
+            blacklist_token(
+                jti=payload.get('jti'),
+                token_type='refresh',
+                user_id=payload.get('user_id'),
+                expires_at=datetime.utcfromtimestamp(payload.get('exp', 0))
+            )
+        except Exception:
+            pass
+    
+    return jsonify({"message": "Logged out successfully"}), 200
+
+
 # Run the Flask application
 if __name__ == '__main__':
     # Print startup info
@@ -4089,4 +4603,4 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5001))
     print(f"\nStarting Flask server on http://0.0.0.0:{port}")
     print("CORS is enabled for all endpoints\n")
-    app.run(host="0.0.0.0", port=5001, debug=True, use_reloader=False)
+    app.run(host="0.0.0.0", port=5001, debug=True, use_reloader=True)
