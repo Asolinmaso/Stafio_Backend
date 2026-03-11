@@ -145,4 +145,4 @@ def register_regularization_approval_endpoints(app):
             db.close()
     
     
-    print("✓ Regularization approval/rejection endpoints registered with authorization checks")
+    print("[OK] Regularization approval/rejection endpoints registered with authorization checks")

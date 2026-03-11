@@ -38,7 +38,6 @@ from admin_endpoints import register_admin_endpoints
 register_admin_endpoints(app)
 
 # Register admin leave workflow endpoints (admin → manager approval flow)
-from admin_leave_workflow_endpoints import register_admin_workflow_endpoints
 # We'll register after decorators are defined (need custom_admin_required)
 
 # ============================================================
@@ -129,10 +128,19 @@ def custom_admin_required():
             return fn(*args, **kwargs)
         return decorator
     return wrapper
+
+def custom_user_required():
+    """Backward-compatible wrapper that uses JWT auth internally"""
+    def wrapper(fn):
+        @wraps(fn)
+        @jwt_required()
+        def decorator(*args, **kwargs):
+            return fn(*args, **kwargs)
+        return decorator
+    return wrapper
 # --- END AUTH DECORATORS ---
 
 # Now register the admin workflow endpoints (needs custom_admin_required decorator)
-register_admin_workflow_endpoints(app, custom_admin_required)
 
 # Register regularization approval/rejection endpoints with authorization checks
 # NOTE: Leave approval endpoints are already in this file (lines 1200-1290)
@@ -411,6 +419,100 @@ def get_today_attendance():
         return jsonify({}), 200
     finally:
         db.close()
+
+import calendar
+
+@app.route('/api/attendance_graph_stats', methods=['GET'])
+def get_attendance_graph_stats():
+    user_id = request.args.get('user_id')
+    db = SessionLocal()
+    try:
+        today = datetime.now().date()
+        query = db.query(Attendance)
+        
+        if user_id:
+            query = query.filter(Attendance.user_id == int(user_id))
+            
+        # Months Data (last 5 months)
+        months_data = []
+        for i in range(4, -1, -1):
+            target_date = today.replace(day=1) - timedelta(days=28 * i)
+            target_month = target_date.month
+            target_year = target_date.year
+            month_name = calendar.month_abbr[target_month]
+            
+            present_count = query.filter(
+                extract('month', Attendance.date) == target_month,
+                extract('year', Attendance.date) == target_year,
+                Attendance.check_in.isnot(None)
+            ).count()
+            
+            # Estimate: ~21 working days per month per employee
+            expected_days = 21 if user_id else 21 * db.query(User).count()
+            expected_days = max(1, expected_days)
+            
+            percent = min(100, (present_count / expected_days) * 100)
+            months_data.append({
+                "month": target_month,
+                "month_name": month_name,
+                "attendance_percentage": round(percent, 2)
+            })
+            
+        # Weeks Data (last 4 weeks)
+        weeks_data = []
+        for i in range(3, -1, -1):
+            start_week = today - timedelta(days=today.weekday()) - timedelta(days=7 * i)
+            end_week = start_week + timedelta(days=6)
+            
+            present_count = query.filter(
+                Attendance.date >= start_week,
+                Attendance.date <= end_week,
+                Attendance.check_in.isnot(None)
+            ).count()
+            
+            # 5 working days per week
+            expected_days = 5 if user_id else 5 * db.query(User).count()
+            expected_days = max(1, expected_days)
+            
+            percent = min(100, (present_count / expected_days) * 100)
+            # W1 is oldest week, W4 is current week
+            week_label = f"W{4 - i}"
+            weeks_data.append({
+                "label": week_label,
+                "value": round(percent, 2)
+            })
+            
+        # Days Data (last 5 days)
+        days_data = []
+        for i in range(4, -1, -1):
+            target_day = today - timedelta(days=i)
+            day_name = calendar.day_abbr[target_day.weekday()]
+            
+            present_count = query.filter(
+                Attendance.date == target_day,
+                Attendance.check_in.isnot(None)
+            ).count()
+            
+            expected_days = 1 if user_id else db.query(User).count()
+            expected_days = max(1, expected_days)
+            
+            percent = min(100, (present_count / expected_days) * 100)
+            days_data.append({
+                "label": day_name,
+                "value": round(percent, 2)
+            })
+            
+        return jsonify({
+            "months": months_data,
+            "weeks": weeks_data,
+            "days": days_data
+        }), 200
+        
+    except Exception as e:
+        print("Attendance stats error:", e)
+        return jsonify({"months": [], "weeks": [], "days": []}), 500
+    finally:
+        db.close()
         
 @app.route('/test_db_connection')
 def test_db_connection():
@@ -439,29 +541,29 @@ def register_user():
     username = data.get('username')
     password = data.get('password')
     email = data.get('email')
-    phone = data.get('phone')            # ⭐ ADDED
+    phone = data.get('phone')
     first_name = data.get('first_name')
     last_name = data.get('last_name')
     role = data.get('role', 'employee')
 
-    # Required field checks
-    if not username or not password or not email:
-        return jsonify({"message": "Username, password, and email are required."}), 400
+    if not username or not password or not email or not phone:
+        return jsonify({"message": "Username, password, email and phone are required."}), 400
 
-    if not phone:
-        return jsonify({"message": "Phone number is required."}), 400  # ⭐ ADDED
-
-    hashed_password = generate_password_hash(password)
-
-    db = None
+    db = SessionLocal()
     try:
-        db = SessionLocal()
+        # Check if signup is allowed
+        signup_setting = db.query(SystemSettings).filter(SystemSettings.setting_key == 'allow_signup').first()
+        is_disabled = signup_setting and signup_setting.setting_value.lower() in ['false', '0', 'no', 'disable', 'disabled']
+        
+        if is_disabled:
+            return jsonify({"message": "User registration is currently disabled by the administrator."}), 403
 
+        hashed_password = generate_password_hash(password)
         new_user = User(
             username=username,
             password_hash=hashed_password,
             email=email,
-            phone=phone,                   # ⭐ ADDED
+            phone=phone,
             first_name=first_name,
             last_name=last_name,
             role=role
@@ -478,12 +580,12 @@ def register_user():
 
     except IntegrityError:
         db.rollback()
-        return jsonify({"message": "Username or email or Phone number already exists. "}), 409
+        return jsonify({"message": "Username, email, or Phone number already exists."}), 409
 
     except Exception as e:
         if db:
             db.rollback()
-        return jsonify({"message": f"An unexpected error occurred: {str(e)}"}), 500
+        return jsonify({"message": f"Server error: {str(e)}"}), 500
 
     finally:
         if db:
@@ -651,8 +753,11 @@ def admin_google_register():
         return jsonify({"message": "Email is required"}), 400
 
     db = SessionLocal()
-
     try:
+        # Check if signup is allowed
+        signup_setting = db.query(SystemSettings).filter(SystemSettings.setting_key == 'allow_signup').first()
+        if signup_setting and signup_setting.setting_value.lower() == 'false':
+            return jsonify({"message": "User registration is currently disabled by the administrator."}), 403
         # Check if user exists
         user = db.query(User).filter(User.email == email).first()
 
@@ -701,8 +806,12 @@ def employee_google_register():
         return jsonify({"message": "Email is required"}), 400
 
     db = SessionLocal()
-
     try:
+        # Check if signup is allowed
+        signup_setting = db.query(SystemSettings).filter(SystemSettings.setting_key == 'allow_signup').first()
+        if signup_setting and signup_setting.setting_value.lower() == 'false':
+            return jsonify({"message": "User registration is currently disabled by the administrator."}), 403
+
         # Check if employee already exists
         user = db.query(User).filter(User.email == email).first()
 
@@ -1692,6 +1801,104 @@ def get_attendance_stats():
         db.close()
 
 
+@app.route('/api/leave_stats', methods=['GET'])
+def get_leave_stats():
+    """Return aggregated leave-days for last 5 months, current month weeks, and current week days.
+    Optional query param: user_id (or set X-User-ID header)."""
+    user_id = request.headers.get('X-User-ID') or request.args.get('user_id')
+
+    db = SessionLocal()
+    try:
+        now = datetime.now().date()
+
+        # Months: last 5 months including current
+        months = []
+        for offset in range(4, -1, -1):
+            # compute year/month for offset months ago
+            m = now.month - offset
+            y = now.year
+            while m <= 0:
+                m += 12
+                y -= 1
+
+            start = date(y, m, 1)
+            if m == 12:
+                next_month = date(y + 1, 1, 1)
+            else:
+                next_month = date(y, m + 1, 1)
+            end = next_month - timedelta(days=1)
+
+            q = db.query(func.coalesce(func.sum(LeaveRequest.num_days), 0)).filter(
+                LeaveRequest.status == 'approved',
+                LeaveRequest.start_date >= start,
+                LeaveRequest.start_date <= end,
+            )
+            if user_id:
+                try:
+                    q = q.filter(LeaveRequest.user_id == int(user_id))
+                except Exception:
+                    q = q.filter(LeaveRequest.user_id == user_id)
+
+            total_days = float(q.scalar() or 0)
+            months.append({"month": start.strftime('%b'), "value": round(total_days, 2)})
+
+        # Weeks: split current month into sequential weeks (W1..W5)
+        start_of_month = now.replace(day=1)
+        if start_of_month.month == 12:
+            first_next = date(start_of_month.year + 1, 1, 1)
+        else:
+            first_next = date(start_of_month.year, start_of_month.month + 1, 1)
+        month_end = first_next - timedelta(days=1)
+
+        weeks = []
+        ws = start_of_month
+        idx = 1
+        while ws <= month_end and idx <= 5:
+            we = min(ws + timedelta(days=6), month_end)
+            q = db.query(func.coalesce(func.sum(LeaveRequest.num_days), 0)).filter(
+                LeaveRequest.status == 'approved',
+                LeaveRequest.start_date >= ws,
+                LeaveRequest.start_date <= we,
+            )
+            if user_id:
+                try:
+                    q = q.filter(LeaveRequest.user_id == int(user_id))
+                except Exception:
+                    q = q.filter(LeaveRequest.user_id == user_id)
+
+            total_days = float(q.scalar() or 0)
+            weeks.append({"label": f"W{idx}", "value": round(total_days, 2)})
+            ws = we + timedelta(days=1)
+            idx += 1
+
+        # Days: current week Mon-Fri
+        wd = now.weekday()
+        monday = now - timedelta(days=wd)
+        days = []
+        for i in range(5):
+            d = monday + timedelta(days=i)
+            q = db.query(func.coalesce(func.sum(LeaveRequest.num_days), 0)).filter(
+                LeaveRequest.status == 'approved',
+                LeaveRequest.start_date == d,
+            )
+            if user_id:
+                try:
+                    q = q.filter(LeaveRequest.user_id == int(user_id))
+                except Exception:
+                    q = q.filter(LeaveRequest.user_id == user_id)
+
+            total_days = float(q.scalar() or 0)
+            days.append({"label": d.strftime('%a'), "value": round(total_days, 2)})
+
+        return jsonify({"months": months, "weeks": weeks, "days": days}), 200
+
+    except Exception as e:
+        print(f"Leave stats error: {str(e)}")
+        return jsonify({"months": [], "weeks": [], "days": []}), 200
+    finally:
+        db.close()
+
+
 @app.route('/api/who_is_on_leave', methods=['GET'])
 def get_who_is_on_leave():
     """Get all approved leave requests for admin view"""
@@ -2367,7 +2574,7 @@ def update_employee(user_id):
         db.close()
 
 
-
+# Redundant endpoint removed. Using get_admin_profile_data instead.
 
 
 # datas for attendance page in admin section
@@ -2858,7 +3065,7 @@ def update_regularization_status(request_id):
 
 # --- Admin Profile Endpoint ---
 @app.route('/admin_profile/<int:user_id>', methods=['GET'])
-@custom_admin_required()
+@custom_user_required()
 def get_admin_profile_data(user_id):
     """
     Returns admin profile data for the specified user from database.
@@ -4274,4 +4481,4 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5001))
     print(f"\nStarting Flask server on http://0.0.0.0:{port}")
     print("CORS is enabled for all endpoints\n")
-    app.run(host="0.0.0.0", port=5001, debug=True, use_reloader=False)
+    app.run(host="0.0.0.0", port=5001, debug=True, use_reloader=True)
