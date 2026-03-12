@@ -259,11 +259,25 @@ def role_required(*roles):
     
     Usage: @role_required('admin') or @role_required('admin', 'manager')
     """
+    # Normalize required roles to lowercase
+    required_roles = [r.lower() for r in roles]
+    
+    import os
+    log_file = os.path.join(os.path.dirname(__file__), "debug_auth.log")
+
     def wrapper(fn):
         @wraps(fn)
         def decorator(*args, **kwargs):
+            user_id = getattr(request, 'user_id', None)
             user_role = getattr(request, 'user_role', None)
-            if user_role not in roles:
+            
+            with open(log_file, "a") as f_log:
+                f_log.write(f"{datetime.now()}: Checking role. Required: {required_roles}, Actual: {user_role}, UserID: {user_id}, Headers: {dict(request.headers)}\n")
+            
+            # Case-insensitive comparison
+            if not user_role or user_role.lower() not in required_roles:
+                with open(log_file, "a") as f_log:
+                    f_log.write(f"{datetime.now()}: ACCESS DENIED\n")
                 return jsonify({
                     "message": f"Access denied. Required role: {', '.join(roles)}"
                 }), 403
