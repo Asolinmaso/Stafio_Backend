@@ -43,22 +43,22 @@ register_admin_endpoints(app)
 # ============================================================
 # SIMPLE CORS HANDLING - ONE FUNCTION, ALWAYS WORKS
 # ============================================================
+
 @app.after_request
 def add_cors_headers(response):
     """Add CORS headers to ALL responses - SIMPLE & CLEAN"""
     origin = request.headers.get('Origin', '*')
-
+    
     # If origin is specified, use it. Otherwise allow all.
     if origin and origin != '*':
         response.headers['Access-Control-Allow-Origin'] = origin
-        # Allow credentials when origin is specific (not wildcard)
         response.headers['Access-Control-Allow-Credentials'] = 'true'
     else:
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Credentials'] = 'false'
 
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-User-Role, X-User-ID, X-User-Role'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-User-Role, X-User-ID'
     return response
 
 @app.before_request
@@ -123,8 +123,20 @@ def custom_admin_required():
     def wrapper(fn):
         @wraps(fn)
         @jwt_required()
-        @role_required('admin')
         def decorator(*args, **kwargs):
+            user_role = getattr(request, 'user_role', None)
+            
+            import os
+            log_file = os.path.join(os.path.dirname(__file__), "debug_auth.log")
+            with open(log_file, "a") as f_log:
+                f_log.write(f"{datetime.now()}: [custom_admin_required] Role Check. Actual: {user_role}\n")
+
+            if not user_role or str(user_role).lower() != 'admin':
+                with open(log_file, "a") as f_log:
+                    f_log.write(f"{datetime.now()}: [custom_admin_required] ACCESS DENIED. Found: {user_role}\n")
+                return jsonify({
+                    "message": f"Access denied. Admin role required. (Found: {user_role})"
+                }), 403
             return fn(*args, **kwargs)
         return decorator
     return wrapper
@@ -424,41 +436,88 @@ import calendar
 
 @app.route('/api/attendance_graph_stats', methods=['GET'])
 def get_attendance_graph_stats():
-    user_id = request.args.get('user_id')
+    # If passed in args, it means we want a specific user (even if requester is Admin)
+    requested_user_id = request.args.get('user_id')
+    
+    # Auth headers
+    requester_role = request.headers.get('X-User-Role', '').lower()
+    requester_id = request.headers.get('X-User-ID')
+    
     db = SessionLocal()
     try:
         today = datetime.now().date()
+        total_users_count = max(1, db.query(User).count())
+        
+        # Base query
         query = db.query(Attendance)
         
-        if user_id:
-            query = query.filter(Attendance.user_id == int(user_id))
-            
-        # Months Data (last 5 months)
+        # Decide if individual or global
+        # 1. If requester is Employee -> Always individual (their own ID)
+        # 2. If requester is Admin -> individual ONLY IF user_id is passed in args
+        
+        is_individual = False
+        target_id = None
+        
+        if requester_role == 'admin':
+            if requested_user_id:
+                target_id = int(requested_user_id)
+                is_individual = True
+            else:
+                is_individual = False # Global
+        else:
+            # Employee role or other — always show their own
+            target_id = int(requester_id) if requester_id else (int(requested_user_id) if requested_user_id else None)
+            is_individual = True if target_id else False
+
+        if is_individual and target_id:
+            query = query.filter(Attendance.user_id == target_id)
+
+        # 1. Months Data (last 6 months)
         months_data = []
-        for i in range(4, -1, -1):
-            target_date = today.replace(day=1) - timedelta(days=28 * i)
-            target_month = target_date.month
-            target_year = target_date.year
-            month_name = calendar.month_abbr[target_month]
+        for i in range(5, -1, -1):
+            # Calculate start of target month
+            # Go back i months from the 1st of current month
+            first_of_this_month = today.replace(day=1)
+            
+            # Simplified year/month calc
+            m = today.month - i
+            y = today.year
+            while m <= 0:
+                m += 12
+                y -= 1
+            
+            month_start = date(y, m, 1)
+            # Find last day of month
+            if m == 12:
+                month_end = date(y + 1, 1, 1) - timedelta(days=1)
+            else:
+                month_end = date(y, m + 1, 1) - timedelta(days=1)
+                
+            month_name = calendar.month_abbr[m]
             
             present_count = query.filter(
-                extract('month', Attendance.date) == target_month,
-                extract('year', Attendance.date) == target_year,
+                Attendance.date >= month_start,
+                Attendance.date <= month_end,
                 Attendance.check_in.isnot(None)
             ).count()
             
-            # Estimate: ~21 working days per month per employee
-            expected_days = 21 if user_id else 21 * db.query(User).count()
-            expected_days = max(1, expected_days)
+            # Expected days logic
+            if y == today.year and m == today.month:
+                # Up to today
+                expected_per_user = max(1, (today.day * 5) // 7)
+                expected_per_user = min(22, expected_per_user)
+            else:
+                expected_per_user = 22
+                
+            denominator = expected_per_user if is_individual else expected_per_user * total_users_count
+            percent = min(100, (present_count / max(1, denominator)) * 100)
             
-            percent = min(100, (present_count / expected_days) * 100)
             months_data.append({
-                "month": target_month,
-                "month_name": month_name,
-                "attendance_percentage": round(percent, 2)
+                "label": month_name,
+                "value": round(percent)
             })
             
-        # Weeks Data (last 4 weeks)
+        # 2. Weeks Data (last 4 weeks)
         weeks_data = []
         for i in range(3, -1, -1):
             start_week = today - timedelta(days=today.weekday()) - timedelta(days=7 * i)
@@ -470,36 +529,34 @@ def get_attendance_graph_stats():
                 Attendance.check_in.isnot(None)
             ).count()
             
-            # 5 working days per week
-            expected_days = 5 if user_id else 5 * db.query(User).count()
-            expected_days = max(1, expected_days)
+            denominator = 5 if is_individual else 5 * total_users_count
+            percent = min(100, (present_count / max(1, denominator)) * 100)
             
-            percent = min(100, (present_count / expected_days) * 100)
-            # W1 is oldest week, W4 is current week
-            week_label = f"W{4 - i}"
             weeks_data.append({
-                "label": week_label,
-                "value": round(percent, 2)
+                "label": f"W{4 - i}",
+                "value": round(percent)
             })
             
-        # Days Data (last 5 days)
+        # 3. Days Data (Current Week: Mon - Sun)
         days_data = []
-        for i in range(4, -1, -1):
-            target_day = today - timedelta(days=i)
+        monday = today - timedelta(days=today.weekday())
+        for i in range(7):
+            target_day = monday + timedelta(days=i)
             day_name = calendar.day_abbr[target_day.weekday()]
             
-            present_count = query.filter(
+            count = query.filter(
                 Attendance.date == target_day,
                 Attendance.check_in.isnot(None)
             ).count()
             
-            expected_days = 1 if user_id else db.query(User).count()
-            expected_days = max(1, expected_days)
-            
-            percent = min(100, (present_count / expected_days) * 100)
+            if is_individual:
+                value = 100 if count > 0 else 0
+            else:
+                value = round((count / total_users_count) * 100)
+
             days_data.append({
                 "label": day_name,
-                "value": round(percent, 2)
+                "value": value
             })
             
         return jsonify({
@@ -509,7 +566,9 @@ def get_attendance_graph_stats():
         }), 200
         
     except Exception as e:
-        print("Attendance stats error:", e)
+        print(f"Attendance stats error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"months": [], "weeks": [], "days": []}), 500
     finally:
         db.close()
@@ -2099,10 +2158,13 @@ def get_regularization_data():
     """Get user's regularization requests from database"""
     user_id = request.headers.get('X-User-ID')
     
+    if not user_id:
+        return jsonify({"message": "User ID header required"}), 400
+
     db = SessionLocal()
     try:
         requests_data = db.query(Regularization).filter(
-            Regularization.user_id == user_id
+            Regularization.user_id == int(user_id)
         ).order_by(Regularization.request_date.desc()).all()
         
         regularization_data = []
@@ -2224,9 +2286,7 @@ def delete_regularization(reg_id):
         if not reg:
             return jsonify({"message": "Record not found"}), 404
 
-        if reg.status != "pending":
-            return jsonify({"message": "Cannot delete approved/rejected request"}), 403
-
+        # Allow deletion regardless of status as per user request
         db.delete(reg)
         db.commit()
         return jsonify({"message": "Regularization deleted"}), 200
@@ -3100,6 +3160,12 @@ def get_regularization_approval():
             
             session_str = req.session_type or "Full Day"
             
+            approver_name = ""
+            if req.approved_by:
+                approver = db.query(User).filter(User.id == req.approved_by).first()
+                if approver:
+                    approver_name = f"{approver.first_name or ''} {approver.last_name or ''}".strip() or approver.username
+
             regularization_approval.append({
                 "id": req.id,
                 "name": name,
@@ -3108,7 +3174,11 @@ def get_regularization_approval():
                 "attendance": req.attendance_type or "Present",
                 "requestDate": req.request_date.strftime('%d-%m-%Y') if req.request_date else "",
                 "status": req.status.capitalize() if req.status else "Pending",
-                "img": image
+                "img": image,
+                "reason": req.reason or "",
+                "approvedBy": approver_name,
+                "approvalReason": req.approval_reason or "",
+                "rejectionReason": req.rejection_reason or ""
             })
         
         return jsonify(regularization_approval), 200
@@ -3224,6 +3294,18 @@ def get_admin_profile_data(user_id):
             ).strip() or hr_user.username
 
         
+        # Prepare docs data
+        docs_data = []
+        documents_list = db.query(Document).filter(Document.user_id == user_id).all()
+        for doc in documents_list:
+            docs_data.append({
+                "id": doc.id,
+                "fileName": doc.file_name,
+                "type": doc.document_type,
+                "size": str(doc.file_size // 1024) if doc.file_size else "0",
+                "status": "Completed" if doc.is_verified else "Uploaded"
+            })
+
         # Return data from database
         admin_profile_data = {
             "profile": {
@@ -3276,7 +3358,7 @@ def get_admin_profile_data(user_id):
                 "aadhaar": emp_profile.aadhaar_number if emp_profile and emp_profile.aadhaar_number else "",
                 "pan": emp_profile.pan_number if emp_profile and emp_profile.pan_number else ""
             },
-            "documents": []
+            "documents": docs_data
         }
         
         return jsonify(admin_profile_data), 200
@@ -3449,7 +3531,7 @@ def get_employee_profile_data(user_id):
                 "aadhaar": emp_profile.aadhaar_number if emp_profile and emp_profile.aadhaar_number else "",
                 "pan": emp_profile.pan_number if emp_profile and emp_profile.pan_number else ""
             },
-            "documents": []
+            "documents": docs_data
         }
         
         return jsonify(employee_profile_data), 200
