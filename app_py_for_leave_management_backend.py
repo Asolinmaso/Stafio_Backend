@@ -59,6 +59,8 @@ def add_cors_headers(response):
 
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-User-Role, X-User-ID, X-User-Role'
+    # Required for Google OAuth popup to work correctly
+    response.headers['Cross-Origin-Opener-Policy'] = 'same-origin-allow-popups'
     return response
 
 @app.before_request
@@ -743,7 +745,6 @@ def get_user_details(user_id):
 
 @app.route('/admin_google_register', methods=['POST'])
 def admin_google_register():
-    ...
     data = request.get_json()
     email = data.get("email")
     username = data.get("username")
@@ -758,14 +759,22 @@ def admin_google_register():
         signup_setting = db.query(SystemSettings).filter(SystemSettings.setting_key == 'allow_signup').first()
         if signup_setting and signup_setting.setting_value.lower() == 'false':
             return jsonify({"message": "User registration is currently disabled by the administrator."}), 403
-        # Check if user exists
+
+        # Check if user exists (any role)
         user = db.query(User).filter(User.email == email).first()
 
         if user:
-            return jsonify({
-                "exists": True,
-                "message": "Email already registered. Please login instead."
-            }), 200
+            if user.role == "admin":
+                return jsonify({
+                    "exists": True,
+                    "message": "Email already registered as admin. Please login instead."
+                }), 200
+            else:
+                # Email exists but under a different role (manager/employee)
+                return jsonify({
+                    "exists": True,
+                    "message": f"This email is already registered as '{user.role}'. Please use admin login or contact your administrator."
+                }), 409
 
         # Create a new admin user (Google user has no password)
         new_user = User(
@@ -789,6 +798,7 @@ def admin_google_register():
 
     except Exception as e:
         db.rollback()
+        print(f"Error in admin_google_register: {str(e)}")
         return jsonify({"message": "Server error", "error": str(e)}), 500
 
     finally:

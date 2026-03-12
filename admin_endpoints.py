@@ -1469,4 +1469,3 @@ def register_admin_endpoints(app):
     """Register the admin blueprint with the Flask app"""
     app.register_blueprint(admin_bp)
     print("Admin endpoints registered successfully")
-
