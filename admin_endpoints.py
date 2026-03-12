@@ -23,10 +23,23 @@ def admin_required():
     def decorator(f):
         @wraps(f)
         @jwt_required()
-        @role_required('admin')
-        def decorated_function(*args, **kwargs):
+        def wrapper(*args, **kwargs):
+            user_role = getattr(request, 'user_role', None)
+            
+            # Use same log file as auth.py if possible
+            import os
+            log_file = os.path.join(os.path.dirname(__file__), "debug_auth.log")
+            with open(log_file, "a") as f_log:
+                f_log.write(f"{datetime.now()}: [admin_required] Role Check. Actual: {user_role}\n")
+                
+            if not user_role or str(user_role).lower() != 'admin':
+                with open(log_file, "a") as f_log:
+                    f_log.write(f"{datetime.now()}: [admin_required] ACCESS DENIED. Found: {user_role}\n")
+                return jsonify({
+                    "message": f"Access denied. Admin role required. (Found: {user_role})"
+                }), 403
             return f(*args, **kwargs)
-        return decorated_function
+        return wrapper
     return decorator
 
 
@@ -1113,7 +1126,7 @@ def get_settings_departments():
     """
     db = SessionLocal()
     try:
-        departments = db.query(Department).all()
+        departments = db.query(Department).order_by(Department.id).all()
         
         dept_list = []
         for dept in departments:
@@ -1469,4 +1482,3 @@ def register_admin_endpoints(app):
     """Register the admin blueprint with the Flask app"""
     app.register_blueprint(admin_bp)
     print("Admin endpoints registered successfully")
-
