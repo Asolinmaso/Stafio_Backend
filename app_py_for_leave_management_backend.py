@@ -1525,7 +1525,7 @@ def create_leave_request():
         # Convert to proper types
         user_id = int(user_id)
         leave_type_id = int(leave_type_id)
-        num_days = int(num_days)
+        num_days = float(num_days)
         
         # Check if leave type exists
         leave_type = db.query(LeaveType).filter(LeaveType.id == leave_type_id).first()
@@ -1538,7 +1538,14 @@ def create_leave_request():
                 type_names = ", ".join([f"{lt.id}: {lt.name}" for lt in available])
                 return jsonify({"message": f"Invalid leave type ID. Available types: {type_names}"}), 400
         
-        # Skip balance check for now (allow request even without balance set)
+        # Get day_type from request (default to full_day)
+        day_type_raw = data.get('day_type', 'full_day')
+        # Normalize in case old frontend sent 'full' or 'half'
+        if day_type_raw == 'half':
+            day_type_raw = 'half_day'
+        elif day_type_raw == 'full':
+            day_type_raw = 'full_day'
+        
         # Create leave request
         new_request = LeaveRequest(
             user_id=user_id,
@@ -1546,6 +1553,7 @@ def create_leave_request():
             start_date=datetime.strptime(start_date, '%Y-%m-%d').date(),
             end_date=datetime.strptime(end_date, '%Y-%m-%d').date(),
             num_days=num_days,
+            day_type=day_type_raw,
             reason=reason,
             status='pending'
         )
@@ -2143,10 +2151,14 @@ def get_leave_data():
         
         leave_data = []
         for req, leave_type in requests_data:
+            # Determine display label for day type
+            day_label = "Half Day" if req.day_type == "half_day" else "Full Day"
+            # Keep num_days as float so 0.5 is preserved
+            num_days_display = float(req.num_days) if req.num_days else 0
             leave_data.append({
                 "id": req.id,
-                "type": f"{leave_type.name} {req.num_days} Day(s)",
-                "date": f"{req.start_date.strftime('%d-%m-%Y')}/Full Day",
+                "type": f"{leave_type.name} {num_days_display} Day(s)",
+                "date": f"{req.start_date.strftime('%d-%m-%Y')}/{day_label}",
                 "reason": req.reason or "",
                 "requestDate": req.applied_date.strftime('%d-%m-%Y') if req.applied_date else "",
                 "status": req.status.capitalize() if req.status else "Pending"
@@ -2305,6 +2317,7 @@ def delete_regularization(reg_id):
         return jsonify({"message": "Delete failed"}), 500
     finally:
         db.close()
+
 
 
 
@@ -2839,9 +2852,9 @@ def get_admin_leave_approval_data():
                 "type": leave_type.name,
                 "from": req.start_date.strftime('%d-%m-%Y'),
                 "to": req.end_date.strftime('%d-%m-%Y'),
-                "days": f"{req.num_days} Day(s)",
-                "session": "Full Day",
-                "dates": f"{req.start_date.strftime('%d-%m-%Y')}/Full Day",
+                "days": f"{float(req.num_days)} Day(s)",
+                "session": "Half Day" if req.day_type == "half_day" else "Full Day",
+                "dates": f"{req.start_date.strftime('%d-%m-%Y')}/{'Half Day' if req.day_type == 'half_day' else 'Full Day'}",
                 "requestDate": req.applied_date.strftime('%d-%m-%Y') if req.applied_date else "",
                 "notify": "HR Head",
                 "document": "",
@@ -2996,7 +3009,7 @@ def get_my_team_la():
     try:
         # Get team members for this manager
         team_members = db.query(TeamMember).filter(
-            TeamMember.manager_id == user_id
+            TeamMember.manager_id == int(user_id)
         ).all()
         
         member_ids = [tm.member_id for tm in team_members]
@@ -3029,9 +3042,9 @@ def get_my_team_la():
                         "type": leave_type.name,
                         "from": req.start_date.strftime('%d-%m-%Y'),
                         "to": req.end_date.strftime('%d-%m-%Y'),
-                        "days": f"{req.num_days} Day(s)",
-                        "session": "Full Day",
-                        "date": f"{req.start_date.strftime('%d-%m-%Y')}/Full Day",
+                        "days": f"{float(req.num_days)} Day(s)",
+                        "session": "Half Day" if req.day_type == "half_day" else "Full Day",
+                        "date": f"{req.start_date.strftime('%d-%m-%Y')}/{'Half Day' if req.day_type == 'half_day' else 'Full Day'}",
                         "request": req.applied_date.strftime('%d-%m-%Y') if req.applied_date else "",
                         "notify": "HR Head",
                         "document": "",
@@ -3070,9 +3083,9 @@ def get_my_team_la():
                 "type": leave_type.name,
                 "from": req.start_date.strftime('%d-%m-%Y'),
                 "to": req.end_date.strftime('%d-%m-%Y'),
-                "days": f"{req.num_days} Day(s)",
-                "session": "Full Day",
-                "date": f"{req.start_date.strftime('%d-%m-%Y')}/Full Day",
+                "days": f"{float(req.num_days)} Day(s)",
+                "session": "Half Day" if req.day_type == "half_day" else "Full Day",
+                "date": f"{req.start_date.strftime('%d-%m-%Y')}/{'Half Day' if req.day_type == 'half_day' else 'Full Day'}",
                 "request": req.applied_date.strftime('%d-%m-%Y') if req.applied_date else "",
                 "notify": "HR Head",
                 "document": "",
@@ -3099,20 +3112,35 @@ def get_myteam_ra():
     try:
         # Get team members for this manager
         team_members = db.query(TeamMember).filter(
-            TeamMember.manager_id == user_id
+            TeamMember.manager_id == int(user_id)
         ).all()
         
         member_ids = [tm.member_id for tm in team_members]
-        
+
+        # Fallback: also include employees who have this user as their supervisor_id
+        if user_id:
+            supervisor_members = db.query(EmployeeProfile).filter(
+                EmployeeProfile.supervisor_id == int(user_id)
+            ).all()
+            supervisor_ids = [ep.user_id for ep in supervisor_members]
+            member_ids = list(set(member_ids + supervisor_ids))
+
         if not member_ids:
-            return jsonify([]), 200
-        
-        # Get regularization requests for team members
-        requests_data = db.query(Regularization, User).join(
-            User, Regularization.user_id == User.id
-        ).filter(
-            Regularization.user_id.in_(member_ids)
-        ).order_by(Regularization.request_date.desc()).all()
+            # Admin fallback: admin with no team sees all regularizations
+            user_role = request.headers.get('X-User-Role', '')
+            if user_role == 'admin':
+                requests_data = db.query(Regularization, User).join(
+                    User, Regularization.user_id == User.id
+                ).order_by(Regularization.request_date.desc()).all()
+            else:
+                return jsonify([]), 200
+        else:
+            # Get regularization requests for team members
+            requests_data = db.query(Regularization, User).join(
+                User, Regularization.user_id == User.id
+            ).filter(
+                Regularization.user_id.in_(member_ids)
+            ).order_by(Regularization.request_date.desc()).all()
         
         my_team_ra = []
         for req, user in requests_data:
@@ -3126,6 +3154,12 @@ def get_myteam_ra():
             
             session_str = req.session_type or "Full Day"
             
+            approver_name = ""
+            if req.approved_by:
+                approver = db.query(User).filter(User.id == req.approved_by).first()
+                if approver:
+                    approver_name = f"{approver.first_name or ''} {approver.last_name or ''}".strip() or approver.username
+
             my_team_ra.append({
                 "id": req.id,
                 "name": name,
@@ -3134,7 +3168,13 @@ def get_myteam_ra():
                 "attendance": req.attendance_type or "Present",
                 "requestDate": req.request_date.strftime('%d-%m-%Y') if req.request_date else "",
                 "status": req.status.capitalize() if req.status else "Pending",
-                "img": image
+                "img": image,
+
+                # ADD THESE
+                "reason": req.reason or "",
+                "approvedBy": approver_name,
+                "approvalReason": req.approval_reason or "",
+                "rejectionReason": req.rejection_reason or ""
             })
         
         return jsonify(my_team_ra), 200
