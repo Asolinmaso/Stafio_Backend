@@ -1538,21 +1538,32 @@ def create_leave_request():
                 type_names = ", ".join([f"{lt.id}: {lt.name}" for lt in available])
                 return jsonify({"message": f"Invalid leave type ID. Available types: {type_names}"}), 400
         
-        # Get day_type from request (default to full_day)
+        # Calculate num_days in backend for accuracy
+        s_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+        e_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+        
+        day_diff = (e_date - s_date).days + 1
+        if day_diff < 0:
+            return jsonify({"message": "End date cannot be before start date"}), 400
+            
         day_type_raw = data.get('day_type', 'full_day')
-        # Normalize in case old frontend sent 'full' or 'half'
+        # Normalize day_type
         if day_type_raw == 'half':
             day_type_raw = 'half_day'
         elif day_type_raw == 'full':
             day_type_raw = 'full_day'
-        
+            
+        calculated_num_days = float(day_diff)
+        if day_type_raw == 'half_day':
+            calculated_num_days = day_diff * 0.5
+            
         # Create leave request
         new_request = LeaveRequest(
             user_id=user_id,
             leave_type_id=leave_type_id,
-            start_date=datetime.strptime(start_date, '%Y-%m-%d').date(),
-            end_date=datetime.strptime(end_date, '%Y-%m-%d').date(),
-            num_days=num_days,
+            start_date=s_date,
+            end_date=e_date,
+            num_days=calculated_num_days,
             day_type=day_type_raw,
             reason=reason,
             status='pending'
@@ -1712,8 +1723,14 @@ def approve_leave_request(request_id):
         ).first()
 
         if balance:
-            balance.used = (balance.used or 0) + leave_request.num_days
-            balance.balance = balance.balance - leave_request.num_days
+            # Recalculate duration for deduction to handle any legacy data issues
+            actual_days = (leave_request.end_date - leave_request.start_date).days + 1
+            deduct_days = float(actual_days)
+            if leave_request.day_type == 'half_day':
+                deduct_days = actual_days * 0.5
+            
+            balance.used = (balance.used or 0) + deduct_days
+            balance.balance = balance.balance - deduct_days
 
         # Create Notification
         new_notif = Notification(
@@ -2112,9 +2129,14 @@ def get_who_is_on_leave():
         
         leave_list = []
         for req, leave_type, user in requests_data:
-            # Calculate number of days
-            days_diff = (req.end_date - req.start_date).days + 1
-            days_text = f"{days_diff} Day" if days_diff == 1 else f"{days_diff} Days"
+            # Calculate number of days accurately including half-day
+            actual_days = (req.end_date - req.start_date).days + 1
+            if req.day_type == 'half_day':
+                display_days = actual_days * 0.5
+            else:
+                display_days = float(actual_days)
+            
+            days_text = f"{display_days} Day" if display_days == 1 else f"{display_days} Days"
             
             leave_list.append({
                 "id": str(user.id),
@@ -2153,11 +2175,17 @@ def get_leave_data():
         for req, leave_type in requests_data:
             # Determine display label for day type
             day_label = "Half Day" if req.day_type == "half_day" else "Full Day"
-            # Keep num_days as float so 0.5 is preserved
-            num_days_display = float(req.num_days) if req.num_days else 0
+            
+            # Recalculate display duration for robustness (especially for half-days)
+            actual_days = (req.end_date - req.start_date).days + 1
+            if req.day_type == 'half_day':
+                display_days = actual_days * 0.5
+            else:
+                display_days = float(actual_days)
+                
             leave_data.append({
                 "id": req.id,
-                "type": f"{leave_type.name} {num_days_display} Day(s)",
+                "type": f"{leave_type.name} {display_days} Day(s)",
                 "date": f"{req.start_date.strftime('%d-%m-%Y')}/{day_label}",
                 "reason": req.reason or "",
                 "requestDate": req.applied_date.strftime('%d-%m-%Y') if req.applied_date else "",
@@ -2846,13 +2874,20 @@ def get_admin_leave_approval_data():
             name = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username
             emp_id = profile.emp_id if profile and profile.emp_id else str(user.id)
             
+            # Calculate display duration for robustness (especially for half-days)
+            actual_days = (req.end_date - req.start_date).days + 1
+            if req.day_type == 'half_day':
+                display_days = actual_days * 0.5
+            else:
+                display_days = float(actual_days)
+                
             leave_approval_data.append({
                 "name": name,
                 "id": emp_id,
                 "type": leave_type.name,
                 "from": req.start_date.strftime('%d-%m-%Y'),
                 "to": req.end_date.strftime('%d-%m-%Y'),
-                "days": f"{float(req.num_days)} Day(s)",
+                "days": f"{display_days} Day(s)",
                 "session": "Half Day" if req.day_type == "half_day" else "Full Day",
                 "dates": f"{req.start_date.strftime('%d-%m-%Y')}/{'Half Day' if req.day_type == 'half_day' else 'Full Day'}",
                 "requestDate": req.applied_date.strftime('%d-%m-%Y') if req.applied_date else "",
@@ -3035,6 +3070,13 @@ def get_my_team_la():
                     emp_id = profile.emp_id if profile and profile.emp_id else str(user.id)
                     image = profile.profile_image if profile and profile.profile_image else f"https://i.pravatar.cc/40?u={user.id}"
                     
+                    # Calculate display duration for robustness (especially for half-days)
+                    actual_days = (req.end_date - req.start_date).days + 1
+                    if req.day_type == 'half_day':
+                        display_days = actual_days * 0.5
+                    else:
+                        display_days = float(actual_days)
+                    
                     my_team_la.append({
                         "id": req.id,
                         "name": name,
@@ -3042,7 +3084,7 @@ def get_my_team_la():
                         "type": leave_type.name,
                         "from": req.start_date.strftime('%d-%m-%Y'),
                         "to": req.end_date.strftime('%d-%m-%Y'),
-                        "days": f"{float(req.num_days)} Day(s)",
+                        "days": f"{display_days} Day(s)",
                         "session": "Half Day" if req.day_type == "half_day" else "Full Day",
                         "date": f"{req.start_date.strftime('%d-%m-%Y')}/{'Half Day' if req.day_type == 'half_day' else 'Full Day'}",
                         "request": req.applied_date.strftime('%d-%m-%Y') if req.applied_date else "",
@@ -3076,6 +3118,13 @@ def get_my_team_la():
             emp_id = profile.emp_id if profile and profile.emp_id else str(user.id)
             image = profile.profile_image if profile and profile.profile_image else f"https://i.pravatar.cc/40?u={user.id}"
             
+            # Calculate display duration for robustness (especially for half-days)
+            actual_days = (req.end_date - req.start_date).days + 1
+            if req.day_type == 'half_day':
+                display_days = actual_days * 0.5
+            else:
+                display_days = float(actual_days)
+            
             my_team_la.append({
                 "id": req.id,
                 "name": name,
@@ -3083,7 +3132,7 @@ def get_my_team_la():
                 "type": leave_type.name,
                 "from": req.start_date.strftime('%d-%m-%Y'),
                 "to": req.end_date.strftime('%d-%m-%Y'),
-                "days": f"{float(req.num_days)} Day(s)",
+                "days": f"{display_days} Day(s)",
                 "session": "Half Day" if req.day_type == "half_day" else "Full Day",
                 "date": f"{req.start_date.strftime('%d-%m-%Y')}/{'Half Day' if req.day_type == 'half_day' else 'Full Day'}",
                 "request": req.applied_date.strftime('%d-%m-%Y') if req.applied_date else "",
