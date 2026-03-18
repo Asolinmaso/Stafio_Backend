@@ -1542,6 +1542,9 @@ def create_leave_request():
         # Calculate num_days in backend for accuracy
         s_date = datetime.strptime(start_date, '%Y-%m-%d').date()
         e_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+
+        if s_date < datetime.today().date():
+            return jsonify({"message": "Cannot apply leave for past dates"}), 400
         
         day_diff = (e_date - s_date).days + 1
         if day_diff < 0:
@@ -1557,7 +1560,31 @@ def create_leave_request():
         calculated_num_days = float(day_diff)
         if day_type_raw == 'half_day':
             calculated_num_days = day_diff * 0.5
-            
+        
+        # ✅ CHECK LEAVE BALANCE BEFORE APPLYING
+
+        used_result = db.query(func.sum(LeaveRequest.num_days)).filter(
+            LeaveRequest.user_id == user_id,
+            LeaveRequest.leave_type_id == leave_type_id,
+            LeaveRequest.status.in_(['approved', 'pending'])
+        ).scalar()
+
+        used = float(used_result) if used_result else 0
+        total = float(leave_type.max_days_per_year)
+        remaining = round(total - used, 2)
+
+        # ❌ BLOCK if no balance
+        if remaining <= 0:
+            return jsonify({
+                "message": f"No {leave_type.name} balance available"
+            }), 400
+
+        # ❌ BLOCK if requested > remaining
+        if calculated_num_days > remaining:
+            return jsonify({
+                "message": f"Only {remaining} day(s) available for {leave_type.name}"
+            }), 400
+         
         # Create leave request
         new_request = LeaveRequest(
             user_id=user_id,
