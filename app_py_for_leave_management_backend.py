@@ -4656,7 +4656,7 @@ def get_broadcasts():
                 "title": b.title,
                 "eventName": b.event_name or b.title,
                 "event_date": b.event_date.strftime('%Y-%m-%d') if b.event_date else None,
-                "event_time": b.event_time,
+                "event_time": b.event_time.strftime('%H:%M') if hasattr(b.event_time, 'strftime') else b.event_time,
                 "event_type": b.event_type,
                 "message": b.message,
                 "target_audience": b.target_audience,

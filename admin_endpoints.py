@@ -1356,7 +1356,7 @@ def get_admin_announcements():
                 "sent_by_name": f"{sender.first_name or ''} {sender.last_name or ''}".strip() if sender else "System",
                 "event_date": b.event_date.strftime('%Y-%m-%d') if b.event_date else None,
                 "event_name": b.event_name,
-                "event_time": b.event_time,
+                "event_time": b.event_time.strftime('%H:%M') if hasattr(b.event_time, 'strftime') else b.event_time,
                 "event_type": b.event_type,
                 "image_url": b.image_url,
                 "author_name": b.author_name,
