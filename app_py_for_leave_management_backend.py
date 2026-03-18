@@ -12,6 +12,7 @@ import jwt
 import requests
 import secrets
 import smtplib
+import urllib.parse
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from sqlalchemy.exc import IntegrityError
@@ -1541,6 +1542,9 @@ def create_leave_request():
         # Calculate num_days in backend for accuracy
         s_date = datetime.strptime(start_date, '%Y-%m-%d').date()
         e_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+
+        if s_date < datetime.today().date():
+            return jsonify({"message": "Cannot apply leave for past dates"}), 400
         
         day_diff = (e_date - s_date).days + 1
         if day_diff < 0:
@@ -1556,7 +1560,31 @@ def create_leave_request():
         calculated_num_days = float(day_diff)
         if day_type_raw == 'half_day':
             calculated_num_days = day_diff * 0.5
-            
+        
+        # ✅ CHECK LEAVE BALANCE BEFORE APPLYING
+
+        used_result = db.query(func.sum(LeaveRequest.num_days)).filter(
+            LeaveRequest.user_id == user_id,
+            LeaveRequest.leave_type_id == leave_type_id,
+            LeaveRequest.status.in_(['approved', 'pending'])
+        ).scalar()
+
+        used = float(used_result) if used_result else 0
+        total = float(leave_type.max_days_per_year)
+        remaining = round(total - used, 2)
+
+        # ❌ BLOCK if no balance
+        if remaining <= 0:
+            return jsonify({
+                "message": f"No {leave_type.name} balance available"
+            }), 400
+
+        # ❌ BLOCK if requested > remaining
+        if calculated_num_days > remaining:
+            return jsonify({
+                "message": f"Only {remaining} day(s) available for {leave_type.name}"
+            }), 400
+         
         # Create leave request
         new_request = LeaveRequest(
             user_id=user_id,
@@ -2613,7 +2641,7 @@ def get_employees_data():
                 "position": profile.position if profile else "Employee",
                 "department": profile.department if profile else "General",
                 "status": profile.status if profile else "Active",
-                "image": profile.profile_image if profile and profile.profile_image else f"https://i.pravatar.cc/40?u={user.id}"
+                "image": profile.profile_image if profile and profile.profile_image else f"https://ui-avatars.com/api/?name={urllib.parse.quote(name)}&background=random"
             })
         
         return jsonify(employees_data), 200
@@ -2811,15 +2839,69 @@ def update_employee(user_id):
 # datas for attendance page in admin section
 @app.route('/api/attendancelist', methods=['GET'])
 def get_admin_attendance_data():
-    """Get all attendance records for admin view"""
+    """Get all attendance records for admin view with filtering"""
     db = SessionLocal()
     try:
-        today = date.today()
+        # Get filter parameters from request
+        name_filter = request.args.get('name', '').strip()
+        status_filter = request.args.get('status', 'All').strip()
+        days_filter = request.args.get('days')
+        from_date_str = request.args.get('from_date')
+        to_date_str = request.args.get('to_date')
+        sort_order = request.args.get('order', 'newest')
         
-        # Get attendance records with user info
-        attendance_records = db.query(Attendance, User).join(
+        print(f"DEBUG Attendance Filter: name={name_filter}, status={status_filter}, days={days_filter}, from={from_date_str}, to={to_date_str}")
+        
+        # Base query
+        query = db.query(Attendance, User).join(
             User, Attendance.user_id == User.id
-        ).order_by(Attendance.date.desc()).limit(100).all()
+        )
+        
+        # Apply Name Filter (Full Phrase Search)
+        if name_filter:
+            search_pattern = f"%{name_filter}%"
+            # Search in username or concatenated "first_name last_name"
+            # This ensures "praga D" matches "Praga D" but NOT "Pragadeeshwari D"
+            query = query.filter(
+                (User.username.ilike(search_pattern)) | 
+                (func.concat(func.coalesce(User.first_name, ''), ' ', func.coalesce(User.last_name, '')).ilike(search_pattern))
+            )
+            
+        # Apply Status Filter
+        if status_filter and status_filter != 'All':
+            # Use ilike for status as well to handle minor case differences
+            query = query.filter(Attendance.status.ilike(status_filter))
+            
+        # Apply Date Range Filter (From/To takes precedence)
+        if from_date_str:
+            try:
+                from_date = datetime.strptime(from_date_str, '%Y-%m-%d').date()
+                query = query.filter(Attendance.date >= from_date)
+            except ValueError:
+                pass
+                
+        if to_date_str:
+            try:
+                to_date = datetime.strptime(to_date_str, '%Y-%m-%d').date()
+                query = query.filter(Attendance.date <= to_date)
+            except ValueError:
+                pass
+        elif days_filter:
+            # Apply "Last N Days" filter if no specific date range
+            try:
+                num_days = int(days_filter)
+                start_date = date.today() - timedelta(days=num_days)
+                query = query.filter(Attendance.date >= start_date)
+            except (ValueError, TypeError):
+                pass
+        
+        # Execute query
+        if sort_order == 'oldest':
+            query = query.order_by(Attendance.date.asc())
+        else:
+            query = query.order_by(Attendance.date.desc())
+            
+        attendance_records = query.all()
         
         attendance_data = []
         for att, user in attendance_records:
@@ -2837,7 +2919,7 @@ def get_admin_attendance_data():
                 "employee": name,
                 "role": role,
                 "status": att.status or "Absent",
-                "date": att.date.strftime('%d %b %Y'),
+                "date": att.date.strftime('%d %b %Y') if att.date else "",
                 "checkIn": att.check_in.strftime('%H:%M') if att.check_in else "00:00",
                 "checkOut": att.check_out.strftime('%H:%M') if att.check_out else "00:00",
                 "workHours": att.work_hours or "0h 0m"
@@ -2847,6 +2929,8 @@ def get_admin_attendance_data():
         
     except Exception as e:
         print(f"Admin attendance error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify([]), 200
     finally:
         db.close()
@@ -2895,6 +2979,7 @@ def get_admin_leave_approval_data():
                 "document": "",
                 "reason": req.reason or "",
                 "status": req.status.capitalize() if req.status else "Pending",
+                "image": profile.profile_image if profile and profile.profile_image else f"https://ui-avatars.com/api/?name={urllib.parse.quote(name)}&background=random",
                 "request_id": req.id
             })
         
@@ -3068,7 +3153,7 @@ def get_my_team_la():
                     
                     name = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username
                     emp_id = profile.emp_id if profile and profile.emp_id else str(user.id)
-                    image = profile.profile_image if profile and profile.profile_image else f"https://i.pravatar.cc/40?u={user.id}"
+                    image = profile.profile_image if profile and profile.profile_image else f"https://ui-avatars.com/api/?name={urllib.parse.quote(name)}&background=random"
                     
                     # Calculate display duration for robustness (especially for half-days)
                     actual_days = (req.end_date - req.start_date).days + 1
@@ -3116,7 +3201,7 @@ def get_my_team_la():
             
             name = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username
             emp_id = profile.emp_id if profile and profile.emp_id else str(user.id)
-            image = profile.profile_image if profile and profile.profile_image else f"https://i.pravatar.cc/40?u={user.id}"
+            image = profile.profile_image if profile and profile.profile_image else f"https://ui-avatars.com/api/?name={urllib.parse.quote(name)}&background=random"
             
             # Calculate display duration for robustness (especially for half-days)
             actual_days = (req.end_date - req.start_date).days + 1
@@ -3199,7 +3284,7 @@ def get_myteam_ra():
             
             name = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username
             emp_id = profile.emp_id if profile and profile.emp_id else str(user.id)
-            image = profile.profile_image if profile and profile.profile_image else f"https://randomuser.me/api/portraits/lego/{user.id % 10}.jpg"
+            image = profile.profile_image if profile and profile.profile_image else f"https://ui-avatars.com/api/?name={urllib.parse.quote(name)}&background=random"
             
             session_str = req.session_type or "Full Day"
             
@@ -3253,7 +3338,7 @@ def get_regularization_approval():
             
             name = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username
             emp_id = profile.emp_id if profile and profile.emp_id else str(user.id)
-            image = profile.profile_image if profile and profile.profile_image else f"https://randomuser.me/api/portraits/lego/{user.id % 10}.jpg"
+            image = profile.profile_image if profile and profile.profile_image else f"https://ui-avatars.com/api/?name={urllib.parse.quote(name)}&background=random"
             
             session_str = req.session_type or "Full Day"
             
@@ -4657,6 +4742,29 @@ def add_announcement():
 
         db.add(new_announcement)
         db.commit()
+
+        # Create notifications for all employees (duplicate of logic for consistency)
+        try:
+            target = data.get("target_audience", "all")
+            query = db.query(User)
+            if target == 'employees':
+                query = query.filter(User.role == 'employee')
+            elif target == 'admins':
+                query = query.filter(User.role == 'admin')
+            
+            target_users = query.all()
+            for user in target_users:
+                notif = Notification(
+                    user_id=user.id,
+                    title=f"New Announcement: {new_announcement.title}",
+                    message=new_announcement.message[:100] + ("..." if len(new_announcement.message) > 100 else ""),
+                    notification_type="broadcast",
+                    link="/employee/dashboard"
+                )
+                db.add(notif)
+            db.commit()
+        except Exception as e:
+            print(f"Error creating notifications: {str(e)}")
 
         return jsonify({
             "message": "Announcement created successfully"

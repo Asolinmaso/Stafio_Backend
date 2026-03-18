@@ -3,7 +3,7 @@ Admin Endpoints Module
 Additional API endpoints for admin section functionality
 """
 from flask import Blueprint, jsonify, request
-from database import SessionLocal, User, LeaveRequest, LeaveType, TeamMember, EmployeeProfile, Department, Broadcast, BroadcastReaction
+from database import SessionLocal, User, LeaveRequest, LeaveType, TeamMember, EmployeeProfile, Department, Broadcast, BroadcastReaction, Notification
 from functools import wraps
 from datetime import datetime
 from sqlalchemy.exc import IntegrityError
@@ -1404,6 +1404,38 @@ def create_announcement():
         db.commit()
         db.refresh(new_broadcast)
         
+        # Create notifications for the target audience
+        try:
+            target = data.get('target_audience', 'all')
+            
+            # Identify users based on target audience
+            query = db.query(User)
+            if target == 'employees':
+                query = query.filter(User.role == 'employee')
+            elif target == 'admins':
+                query = query.filter(User.role == 'admin')
+            # 'all' includes everyone
+            
+            target_users = query.all()
+            
+            for user in target_users:
+                # Avoid notifying the sender themselves if you want, but usually announcements go to everyone
+                notif = Notification(
+                    user_id=user.id,
+                    title=f"New Announcement: {new_broadcast.title}",
+                    message=new_broadcast.message[:100] + ("..." if len(new_broadcast.message) > 100 else ""),
+                    notification_type="broadcast",
+                    link="/employee/dashboard" # Or wherever announcements are viewed
+                )
+                db.add(notif)
+            
+            db.commit()
+            print(f"Notifications created for {len(target_users)} users for announcement {new_broadcast.id}")
+        except Exception as e:
+            print(f"Error creating notifications for announcement: {str(e)}")
+            # Don't fail the announcement creation if notifications fail
+            pass
+
         return jsonify({
             "message": "Announcement created successfully",
             "id": new_broadcast.id
