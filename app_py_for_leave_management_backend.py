@@ -4724,87 +4724,14 @@ def create_broadcast():
 
 
 # ==========================================================
-# ADD NEW ANNOUNCEMENT
+# NOTE: /api/admin/announcements (POST + GET) have been REMOVED from here.
+# FIX 4: These routes were duplicated — they also exist in admin_endpoints.py
+# (registered as a Blueprint) WITH proper @admin_required() authentication.
+# Having two registrations caused Flask to use the Blueprint version (last
+# registered), but the bare versions here caused route conflict confusion.
+# The authenticated Blueprint versions are the only registrations now.
 # ==========================================================
 
-@app.route('/api/admin/announcements', methods=['POST'])
-def add_announcement():
-    db = SessionLocal()
-    try:
-        data = request.get_json()
-
-        new_announcement = Announcement(
-            title=data.get("title"),
-            message=data.get("message"),
-            target_audience=data.get("target_audience", "all"),
-            is_active=data.get("is_active", True)
-        )
-
-        db.add(new_announcement)
-        db.commit()
-
-        # Create notifications for all employees (duplicate of logic for consistency)
-        try:
-            target = data.get("target_audience", "all")
-            query = db.query(User)
-            if target == 'employees':
-                query = query.filter(User.role == 'employee')
-            elif target == 'admins':
-                query = query.filter(User.role == 'admin')
-            
-            target_users = query.all()
-            for user in target_users:
-                notif = Notification(
-                    user_id=user.id,
-                    title=f"New Announcement: {new_announcement.title}",
-                    message=new_announcement.message[:100] + ("..." if len(new_announcement.message) > 100 else ""),
-                    notification_type="broadcast",
-                    link="/employee/dashboard"
-                )
-                db.add(notif)
-            db.commit()
-        except Exception as e:
-            print(f"Error creating notifications: {str(e)}")
-
-        return jsonify({
-            "message": "Announcement created successfully"
-        }), 201
-
-    except Exception as e:
-        db.rollback()
-        return jsonify({"message": str(e)}), 500
-    finally:
-        db.close()
-
-# ==========================================================
-# GET ALL ANNOUNCEMENTS
-# ==========================================================
-
-@app.route('/api/admin/announcements', methods=['GET'])
-def get_all_announcements():
-    db = SessionLocal()
-    try:
-        announcements = db.query(Announcement).order_by(
-            Announcement.created_at.desc()
-        ).all()
-
-        result = []
-        for a in announcements:
-            result.append({
-                "id": a.id,
-                "title": a.title,
-                "message": a.message,
-                "target_audience": a.target_audience,
-                "is_active": a.is_active,
-                "created_at": a.created_at.strftime("%d %b %Y %H:%M")
-            })
-
-        return jsonify(result), 200
-
-    except Exception as e:
-        return jsonify({"message": str(e)}), 500
-    finally:
-        db.close()
 
 # =============================================================================
 # JWT TOKEN ENDPOINTS
