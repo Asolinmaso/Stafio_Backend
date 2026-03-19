@@ -19,25 +19,31 @@ admin_bp = Blueprint('admin_endpoints', __name__)
 # ============================================================================
 
 def admin_required():
-    """Decorator to require admin role for endpoints (JWT-based)"""
+    """
+    Decorator to require admin role for endpoints (JWT-based).
+
+    Correct pattern: @jwt_required() wraps the `wrapper` body directly.
+    At call time, jwt_required executes FIRST (it is the outermost layer
+    around `wrapper`), decodes the JWT and populates request.user_role /
+    request.user_id. The role check inside `wrapper` then reads the
+    already-set value and either allows or denies the request.
+
+    NOTE: do NOT stack @role_required above @jwt_required here — Python
+    executes the top-most decorator first at runtime, so role_required
+    would see request.user_role == None and return 403 before JWT even runs.
+    """
     def decorator(f):
         @wraps(f)
-        @jwt_required()
+        @jwt_required()  # jwt_required wraps wrapper → runs first at call time
         def wrapper(*args, **kwargs):
+            # request.user_role is now populated by jwt_required above
             user_role = getattr(request, 'user_role', None)
-            
-            # Use same log file as auth.py if possible
-            import os
-            log_file = os.path.join(os.path.dirname(__file__), "debug_auth.log")
-            with open(log_file, "a") as f_log:
-                f_log.write(f"{datetime.now()}: [admin_required] Role Check. Actual: {user_role}\n")
-                
+
             if not user_role or str(user_role).lower() != 'admin':
-                with open(log_file, "a") as f_log:
-                    f_log.write(f"{datetime.now()}: [admin_required] ACCESS DENIED. Found: {user_role}\n")
                 return jsonify({
                     "message": f"Access denied. Admin role required. (Found: {user_role})"
                 }), 403
+
             return f(*args, **kwargs)
         return wrapper
     return decorator

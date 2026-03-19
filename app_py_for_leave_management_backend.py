@@ -2610,6 +2610,27 @@ def get_attendance_data():
 
 #data for employee list page in ogranization page of the admin section
 
+@app.route('/api/staff_list', methods=['GET'])
+def get_staff_list():
+    """Get all users to populate supervisor and HR manager selects"""
+    db = SessionLocal()
+    try:
+        users = db.query(User).all()
+        staff = []
+        for u in users:
+            name = f"{u.first_name or ''} {u.last_name or ''}".strip() or u.username
+            staff.append({
+                "id": u.id,
+                "name": name,
+                "role": u.role
+            })
+        return jsonify(staff), 200
+    except Exception as e:
+        print(f"Staff list error: {str(e)}")
+        return jsonify([]), 200
+    finally:
+        db.close()
+
 @app.route('/api/employeeslist', methods=['GET'])
 def get_employees_data():
     """Get all employees from database"""
@@ -2656,8 +2677,11 @@ def get_employees_data():
 @app.route('/api/employees', methods=['POST'])
 def add_employee():
     """Create a new employee (Admin only)"""
-    data = request.get_json()
-    
+    if request.content_type and 'multipart/form-data' in request.content_type:
+        data = request.form
+    else:
+        data = request.get_json() or {}
+
     # Required validation
     first_name = data.get('firstName')
     last_name = data.get('lastName')
@@ -2665,24 +2689,42 @@ def add_employee():
     emp_id = data.get('employeeId')
     phone = data.get('phone')
     
-    if not all([first_name, last_name, email, emp_id, phone]):
+    if not all([first_name, last_name, email, phone]):
         return jsonify({"message": "Missing required fields"}), 400
         
     db = SessionLocal()
     try:
-        # Check if email/username/emp_id already exists
+        # Check if email/username already exists
         username = email.split('@')[0]
         existing_user = db.query(User).filter((User.email == email) | (User.username == username)).first()
         if existing_user:
              return jsonify({"message": "User with this email already exists"}), 400
             
+        # ─── Automatic Employee ID Generation ───
+        if not emp_id or emp_id.strip() == "":
+            try:
+                # Find the maximum numeric emp_id in profiles
+                all_ids = db.query(EmployeeProfile.emp_id).all()
+                max_numeric_id = 1000  # Default floor
+                for (eid,) in all_ids:
+                    if eid and eid.isdigit():
+                        max_numeric_id = max(max_numeric_id, int(eid))
+                emp_id = str(max_numeric_id + 1)
+            except Exception as e:
+                print(f"Error generating emp_id: {str(e)}")
+                # Falling back to a timestamp-based ID or just letting it error if critical
+                emp_id = str(int(datetime.now().timestamp()))
+        
+        # Now check if this generated or provided emp_id exists
         existing_profile = db.query(EmployeeProfile).filter(EmployeeProfile.emp_id == emp_id).first()
         if existing_profile:
-             return jsonify({"message": "Employee ID already exists"}), 400
+             return jsonify({"message": f"Employee ID {emp_id} already exists. Please enter a unique ID manually."}), 400
 
         # Create User
         from werkzeug.security import generate_password_hash
-        default_password = generate_password_hash("Welcome@123")
+        # Use email prefix + "123" as the default password
+        generated_password = f"{username}123"
+        default_password = generate_password_hash(generated_password)
         new_user = User(
             username=username,
             password_hash=default_password,
@@ -2726,6 +2768,17 @@ def add_employee():
              u = db.query(User).filter(User.first_name == f_name, User.last_name == l_name).first()
              return u.id if u else None
 
+        # File handling
+        profile_image_url = None
+        if 'profileImage' in request.files:
+            file = request.files['profileImage']
+            if file and file.filename != '':
+                import base64
+                file_content = file.read()
+                base64_encoded = base64.b64encode(file_content).decode('utf-8')
+                mime_type = file.content_type if file.content_type else 'image/png'
+                profile_image_url = f"data:{mime_type};base64,{base64_encoded}"
+
         new_profile = EmployeeProfile(
             user_id=new_user.id,
             emp_id=emp_id,
@@ -2747,7 +2800,8 @@ def add_employee():
             edu_end_date=edu_end_date,
             skills=data.get('skills'),
             portfolio=data.get('portfolioLink'),
-            blood_group=data.get('bloodGroup')
+            blood_group=data.get('bloodGroup'),
+            profile_image=profile_image_url
         )
         db.add(new_profile)
         db.commit()
@@ -2764,7 +2818,11 @@ def add_employee():
 
 @app.route('/api/employees/<int:user_id>', methods=['PUT'])
 def update_employee(user_id):
-    data = request.get_json()
+    if request.content_type and 'multipart/form-data' in request.content_type:
+        data = request.form
+    else:
+        data = request.get_json() or {}
+        
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.id == user_id).first()
@@ -2822,6 +2880,15 @@ def update_employee(user_id):
         profile.portfolio = data.get('portfolioLink', profile.portfolio)
         profile.blood_group = data.get('bloodGroup', profile.blood_group)
 
+        if 'profileImage' in request.files:
+            file = request.files['profileImage']
+            if file and file.filename != '':
+                import base64
+                file_content = file.read()
+                base64_encoded = base64.b64encode(file_content).decode('utf-8')
+                mime_type = file.content_type if file.content_type else 'image/png'
+                profile.profile_image = f"data:{mime_type};base64,{base64_encoded}"
+
         db.commit()
         return jsonify({"message": "Employee updated successfully"}), 200
         
@@ -2832,8 +2899,9 @@ def update_employee(user_id):
     finally:
         db.close()
 
-
 # Redundant endpoint removed. Using get_admin_profile_data instead.
+
+
 
 
 # datas for attendance page in admin section
@@ -4724,87 +4792,14 @@ def create_broadcast():
 
 
 # ==========================================================
-# ADD NEW ANNOUNCEMENT
+# NOTE: /api/admin/announcements (POST + GET) have been REMOVED from here.
+# FIX 4: These routes were duplicated — they also exist in admin_endpoints.py
+# (registered as a Blueprint) WITH proper @admin_required() authentication.
+# Having two registrations caused Flask to use the Blueprint version (last
+# registered), but the bare versions here caused route conflict confusion.
+# The authenticated Blueprint versions are the only registrations now.
 # ==========================================================
 
-@app.route('/api/admin/announcements', methods=['POST'])
-def add_announcement():
-    db = SessionLocal()
-    try:
-        data = request.get_json()
-
-        new_announcement = Announcement(
-            title=data.get("title"),
-            message=data.get("message"),
-            target_audience=data.get("target_audience", "all"),
-            is_active=data.get("is_active", True)
-        )
-
-        db.add(new_announcement)
-        db.commit()
-
-        # Create notifications for all employees (duplicate of logic for consistency)
-        try:
-            target = data.get("target_audience", "all")
-            query = db.query(User)
-            if target == 'employees':
-                query = query.filter(User.role == 'employee')
-            elif target == 'admins':
-                query = query.filter(User.role == 'admin')
-            
-            target_users = query.all()
-            for user in target_users:
-                notif = Notification(
-                    user_id=user.id,
-                    title=f"New Announcement: {new_announcement.title}",
-                    message=new_announcement.message[:100] + ("..." if len(new_announcement.message) > 100 else ""),
-                    notification_type="broadcast",
-                    link="/employee/dashboard"
-                )
-                db.add(notif)
-            db.commit()
-        except Exception as e:
-            print(f"Error creating notifications: {str(e)}")
-
-        return jsonify({
-            "message": "Announcement created successfully"
-        }), 201
-
-    except Exception as e:
-        db.rollback()
-        return jsonify({"message": str(e)}), 500
-    finally:
-        db.close()
-
-# ==========================================================
-# GET ALL ANNOUNCEMENTS
-# ==========================================================
-
-@app.route('/api/admin/announcements', methods=['GET'])
-def get_all_announcements():
-    db = SessionLocal()
-    try:
-        announcements = db.query(Announcement).order_by(
-            Announcement.created_at.desc()
-        ).all()
-
-        result = []
-        for a in announcements:
-            result.append({
-                "id": a.id,
-                "title": a.title,
-                "message": a.message,
-                "target_audience": a.target_audience,
-                "is_active": a.is_active,
-                "created_at": a.created_at.strftime("%d %b %Y %H:%M")
-            })
-
-        return jsonify(result), 200
-
-    except Exception as e:
-        return jsonify({"message": str(e)}), 500
-    finally:
-        db.close()
 
 # =============================================================================
 # JWT TOKEN ENDPOINTS
