@@ -58,6 +58,7 @@ class User(Base):
     role = Column(Enum('employee', 'admin', name='user_role'), default='employee')
     created_at = Column(DateTime, default=datetime.utcnow)
     phone = Column(String(20), unique=True)
+    theme = Column(String(20))
 
     
     # Relationships
