@@ -612,6 +612,67 @@ def update_admin_profile(user_id):
     finally:
         db.close()
 
+
+# ============================================================================
+# USER THEME SETTINGS
+# ============================================================================
+
+@admin_bp.route('/api/settings/user_theme', methods=['GET'])
+@jwt_required()
+def get_user_theme():
+    """
+    Get the theme preference for the logged-in user
+    """
+    user_id = getattr(request, 'user_id', None)
+    if not user_id:
+        return jsonify({"message": "User ID not found in token"}), 401
+    
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == int(user_id)).first()
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+            
+        return jsonify({"theme": user.theme}), 200
+    except Exception as e:
+        print(f"Error in get_user_theme: {str(e)}")
+        return jsonify({"message": f"Error: {str(e)}"}), 500
+    finally:
+        db.close()
+
+@admin_bp.route('/api/settings/user_theme', methods=['PUT'])
+@jwt_required()
+def update_user_theme():
+    """
+    Update the theme preference for the logged-in user
+    """
+    user_id = getattr(request, 'user_id', None)
+    if not user_id:
+        return jsonify({"message": "User ID not found in token"}), 401
+        
+    data = request.get_json()
+    new_theme = data.get('theme')
+    
+    if not new_theme:
+        return jsonify({"message": "Theme is required"}), 400
+        
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == int(user_id)).first()
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+            
+        user.theme = new_theme
+        db.commit()
+        return jsonify({"message": "User theme updated successfully"}), 200
+    except Exception as e:
+        db.rollback()
+        print(f"Error in update_user_theme: {str(e)}")
+        return jsonify({"message": f"Error: {str(e)}"}), 500
+    finally:
+        db.close()
+
+
         
 
 # ============================================================================
@@ -619,7 +680,6 @@ def update_admin_profile(user_id):
 # ============================================================================
 
 @admin_bp.route('/api/settings/general', methods=['GET'])
-@admin_required()
 def get_general_settings():
     """
     Get all general system settings
