@@ -1495,17 +1495,18 @@ def update_password():
 def create_leave_request():
     """Create a new leave request"""
     data = request.get_json()
+
     user_id = data.get('user_id')
     leave_type_id = data.get('leave_type_id')
     start_date = data.get('start_date')
     end_date = data.get('end_date')
     num_days = data.get('num_days')
     reason = data.get('reason')
-    
+
     # Debug logging
     print(f"Leave request data: user_id={user_id}, leave_type_id={leave_type_id}, start_date={start_date}, end_date={end_date}, num_days={num_days}")
-    
-    # Better validation with specific error messages
+
+    # Validation
     missing_fields = []
     if not user_id:
         missing_fields.append('user_id')
@@ -1517,75 +1518,85 @@ def create_leave_request():
         missing_fields.append('end_date')
     if not num_days:
         missing_fields.append('num_days')
-    
+
     if missing_fields:
         return jsonify({"message": f"Missing required fields: {', '.join(missing_fields)}"}), 400
-    
+
     db = SessionLocal()
     try:
-        # Convert to proper types
+        # Convert types
         user_id = int(user_id)
         leave_type_id = int(leave_type_id)
         num_days = float(num_days)
-        
-        # Check if leave type exists
+
+        # Check leave type
         leave_type = db.query(LeaveType).filter(LeaveType.id == leave_type_id).first()
         if not leave_type:
-            # Get available leave types for better error message
             available = db.query(LeaveType).all()
             if not available:
-                return jsonify({"message": "No leave types configured. Please contact admin to add leave types first."}), 400
+                return jsonify({"message": "No leave types configured. Please contact admin."}), 400
             else:
                 type_names = ", ".join([f"{lt.id}: {lt.name}" for lt in available])
-                return jsonify({"message": f"Invalid leave type ID. Available types: {type_names}"}), 400
-        
-        # Calculate num_days in backend for accuracy
+                return jsonify({"message": f"Invalid leave type ID. Available: {type_names}"}), 400
+
+        # Date parsing
         s_date = datetime.strptime(start_date, '%Y-%m-%d').date()
         e_date = datetime.strptime(end_date, '%Y-%m-%d').date()
 
         if s_date < datetime.today().date():
             return jsonify({"message": "Cannot apply leave for past dates"}), 400
-        
+
         day_diff = (e_date - s_date).days + 1
         if day_diff < 0:
             return jsonify({"message": "End date cannot be before start date"}), 400
-            
+
+        # 🚫 OVERLAP CHECK (FIXED - NO lower())
+        existing_leave = db.query(LeaveRequest).filter(
+            LeaveRequest.user_id == user_id,
+            LeaveRequest.status.in_(["pending", "approved"]),  # ✅ FIXED
+            LeaveRequest.start_date <= e_date,
+            LeaveRequest.end_date >= s_date
+        ).first()
+
+        if existing_leave:
+            return jsonify({
+                "message": f"You already applied leave from {existing_leave.start_date} to {existing_leave.end_date}"
+            }), 400
+
+        # Day type
         day_type_raw = data.get('day_type', 'full_day')
-        # Normalize day_type
         if day_type_raw == 'half':
             day_type_raw = 'half_day'
         elif day_type_raw == 'full':
             day_type_raw = 'full_day'
-            
+
+        # Calculate days
         calculated_num_days = float(day_diff)
         if day_type_raw == 'half_day':
             calculated_num_days = day_diff * 0.5
-        
-        # ✅ CHECK LEAVE BALANCE BEFORE APPLYING
 
+        # ✅ LEAVE BALANCE CHECK (FIXED)
         used_result = db.query(func.sum(LeaveRequest.num_days)).filter(
             LeaveRequest.user_id == user_id,
             LeaveRequest.leave_type_id == leave_type_id,
-            LeaveRequest.status.in_(['approved', 'pending'])
+            LeaveRequest.status.in_(["pending", "approved"])  # ✅ FIXED
         ).scalar()
 
         used = float(used_result) if used_result else 0
         total = float(leave_type.max_days_per_year)
         remaining = round(total - used, 2)
 
-        # ❌ BLOCK if no balance
         if remaining <= 0:
             return jsonify({
                 "message": f"No {leave_type.name} balance available"
             }), 400
 
-        # ❌ BLOCK if requested > remaining
         if calculated_num_days > remaining:
             return jsonify({
                 "message": f"Only {remaining} day(s) available for {leave_type.name}"
             }), 400
-         
-        # Create leave request
+
+        # Create leave
         new_request = LeaveRequest(
             user_id=user_id,
             leave_type_id=leave_type_id,
@@ -1594,18 +1605,18 @@ def create_leave_request():
             num_days=calculated_num_days,
             day_type=day_type_raw,
             reason=reason,
-            status='pending'
+            status='pending'  # ✅ keep lowercase consistent
         )
-        
+
         db.add(new_request)
         db.commit()
         db.refresh(new_request)
-        
+
         return jsonify({
             "message": "Leave request submitted successfully",
             "id": new_request.id
         }), 201
-        
+
     except ValueError as e:
         return jsonify({"message": f"Invalid data format: {str(e)}"}), 400
     except Exception as e:
@@ -1615,6 +1626,117 @@ def create_leave_request():
     finally:
         db.close()
 
+@app.route('/leave_requests/<int:request_id>', methods=['PUT'])
+def update_leave_request(request_id):
+    """Update an existing leave request (only if pending)"""
+
+    data = request.get_json()
+
+    db = SessionLocal()
+    try:
+        leave_request = db.query(LeaveRequest).filter(
+            LeaveRequest.id == request_id
+        ).first()
+
+        if not leave_request:
+            return jsonify({"message": "Leave request not found"}), 404
+
+        # ❌ Only allow edit if pending
+        if leave_request.status != "pending":
+            return jsonify({"message": "Only pending requests can be edited"}), 400
+
+        # Get updated fields
+        leave_type_id = data.get('leave_type_id')
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        reason = data.get('reason')
+
+        # Convert dates
+        s_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+        e_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+
+        if s_date < datetime.today().date():
+            return jsonify({"message": "Cannot apply leave for past dates"}), 400
+
+        if e_date < s_date:
+            return jsonify({"message": "End date cannot be before start date"}), 400
+
+        # Day type
+        day_type_raw = data.get('day_type', 'full_day')
+
+        # Calculate days
+        day_diff = (e_date - s_date).days + 1
+        calculated_num_days = float(day_diff)
+
+        if day_type_raw == 'half_day':
+            calculated_num_days = day_diff * 0.5
+
+        # 🚫 OVERLAP CHECK (exclude current request)
+        existing_leave = db.query(LeaveRequest).filter(
+            LeaveRequest.user_id == leave_request.user_id,
+            LeaveRequest.id != request_id,  # exclude current
+            LeaveRequest.status.in_(["pending", "approved"]),
+            LeaveRequest.start_date <= e_date,
+            LeaveRequest.end_date >= s_date
+        ).first()
+
+        if existing_leave:
+            return jsonify({
+                "message": f"Overlapping leave exists from {existing_leave.start_date} to {existing_leave.end_date}"
+            }), 400
+
+        # ✅ UPDATE VALUES
+        leave_request.leave_type_id = leave_type_id
+        leave_request.start_date = s_date
+        leave_request.end_date = e_date
+        leave_request.num_days = calculated_num_days
+        leave_request.day_type = day_type_raw
+        leave_request.reason = reason
+
+        db.commit()
+
+        return jsonify({
+            "message": "Leave request updated successfully"
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        print("Update leave error:", str(e))
+        return jsonify({"message": str(e)}), 500
+
+    finally:
+        db.close()
+
+#for delete the request
+@app.route('/leave_requests/<int:request_id>', methods=['DELETE'])
+def delete_leave_request(request_id):
+    """Delete a leave request (only if pending)"""
+
+    db = SessionLocal()
+    try:
+        leave_request = db.query(LeaveRequest).filter(
+            LeaveRequest.id == request_id
+        ).first()
+
+        if not leave_request:
+            return jsonify({"message": "Leave request not found"}), 404
+
+        # ❌ Only allow delete if pending
+        if leave_request.status != "pending":
+            return jsonify({"message": "Only pending requests can be deleted"}), 400
+
+        db.delete(leave_request)
+        db.commit()
+
+        return jsonify({"message": "Leave request deleted successfully"}), 200
+
+    except Exception as e:
+        db.rollback()
+        print("Delete leave error:", str(e))
+        return jsonify({"message": str(e)}), 500
+
+    finally:
+        db.close()
 
 # Create Leave Type (POST) - Admin only
 @app.route('/leave_types', methods=['POST'])
@@ -2187,32 +2309,34 @@ def get_who_is_on_leave():
 
 @app.route('/api/myleave', methods=['GET'])
 def get_leave_data():
-    """Get user's leave requests from database"""
     user_id = request.headers.get('X-User-ID')
     
     db = SessionLocal()
     try:
-        # Join with LeaveType to get the leave type name
         requests_data = db.query(LeaveRequest, LeaveType).join(
             LeaveType, LeaveRequest.leave_type_id == LeaveType.id
         ).filter(
-            LeaveRequest.user_id == user_id
+            LeaveRequest.user_id == int(user_id)  # ✅ FIXED
         ).order_by(LeaveRequest.applied_date.desc()).all()
         
         leave_data = []
         for req, leave_type in requests_data:
-            # Determine display label for day type
             day_label = "Half Day" if req.day_type == "half_day" else "Full Day"
             
-            # Recalculate display duration for robustness (especially for half-days)
             actual_days = (req.end_date - req.start_date).days + 1
-            if req.day_type == 'half_day':
-                display_days = actual_days * 0.5
-            else:
-                display_days = float(actual_days)
+            display_days = actual_days * 0.5 if req.day_type == 'half_day' else float(actual_days)
                 
             leave_data.append({
                 "id": req.id,
+
+                # ✅ RAW DATA (for edit)
+                "leave_type_id": req.leave_type_id,
+                "start_date": req.start_date.strftime('%Y-%m-%d'),
+                "end_date": req.end_date.strftime('%Y-%m-%d'),
+                "day_type": req.day_type,
+                "num_days": req.num_days,
+
+                # ✅ DISPLAY DATA
                 "type": f"{leave_type.name} {display_days} Day(s)",
                 "date": f"{req.start_date.strftime('%d-%m-%Y')}/{day_label}",
                 "reason": req.reason or "",
