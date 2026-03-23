@@ -2913,6 +2913,7 @@ def add_employee():
             department=data.get('department'),
             position=data.get('designation'),
             status=data.get('status', 'Active'),
+            joining_date=joining_date,
             # Supervisor / HR (assuming we pass names for now, but ID is better)
             supervisor_id=get_user_id_by_name(data.get('supervisor')),
             hr_manager_id=get_user_id_by_name(data.get('hrManager')),
@@ -2955,7 +2956,10 @@ def update_employee(user_id):
             
         profile = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user_id).first()
         if not profile:
-            return jsonify({"message": "Profile not found"}), 404
+            # Auto-create an empty profile so we can continue with the update
+            profile = EmployeeProfile(user_id=user_id)
+            db.add(profile)
+            db.flush()  # get the ID assigned without full commit yet
 
         # Update User fields
         user.first_name = data.get('firstName', user.first_name)
@@ -2988,6 +2992,7 @@ def update_employee(user_id):
         profile.department = data.get('department', profile.department)
         profile.position = data.get('designation', profile.position)
         profile.status = data.get('status', 'Active')
+        profile.joining_date = parse_date(data.get('joiningDate'))
         
         if data.get('supervisor'):
             profile.supervisor_id = get_user_id_by_name(data.get('supervisor'))
@@ -3684,7 +3689,10 @@ def get_admin_profile_data(user_id):
         admin_profile_data = {
             "profile": {
                 "profileImage": emp_profile.profile_image if emp_profile and emp_profile.profile_image else "",
+                "profile_image": emp_profile.profile_image if emp_profile and emp_profile.profile_image else "",
                 "name": f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username,
+                "first_name": user.first_name or (user.username.split()[0] if user.username else ""),
+                "last_name": user.last_name or (user.username.split()[1] if user.username and len(user.username.split()) > 1 else ""),
                 "gender": emp_profile.gender if emp_profile and emp_profile.gender else "",
                 "dob": emp_profile.dob.strftime('%Y-%m-%d') if emp_profile and emp_profile.dob else "",
                 "maritalStatus": emp_profile.marital_status if emp_profile and emp_profile.marital_status else "",
@@ -3703,6 +3711,8 @@ def get_admin_profile_data(user_id):
                 "supervisor_id": emp_profile.supervisor_id if emp_profile else None,
                 "hr_manager_id": emp_profile.hr_manager_id if emp_profile else None,
                 "empId": emp_profile.emp_id if emp_profile and emp_profile.emp_id else str(user.id),
+                "id": user.id,
+                "joiningDate": emp_profile.joining_date.strftime('%Y-%m-%d') if emp_profile and emp_profile.joining_date else "",
                 "status": emp_profile.status if emp_profile and emp_profile.status else "Active",
                 "position": emp_profile.position if emp_profile and emp_profile.position else "",
             },
