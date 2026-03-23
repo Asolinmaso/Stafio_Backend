@@ -504,113 +504,167 @@ def get_employee_leave_balance(user_id):
 def update_admin_profile(user_id):
     db = SessionLocal()
     try:
-        data = request.json
+        # Support both JSON and multipart/form-data
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            raw = request.form
+        else:
+            raw = request.json or {}
 
         user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+
         emp_profile = db.query(EmployeeProfile).filter(
             EmployeeProfile.user_id == user_id
         ).first()
 
-        if not user or not emp_profile:
-            return jsonify({"message": "User not found"}), 404
+        # Auto-create profile if employee signed up without going through Add-Employee
+        if not emp_profile:
+            emp_profile = EmployeeProfile(user_id=user_id)
+            db.add(emp_profile)
+            db.flush()
 
-        profile = data.get("profile", {})
-        education = data.get("education", {})
-        experience = data.get("experience", {})
-        bank = data.get("bank", {})
+        # ---- Detect format ----
+        # Flat format (from Employees.jsx / EmployeesMyTeam.jsx):
+        #   firstName, lastName, employeeId, designation, employmentType, supervisor, hrManager, ...
+        # Nested format (from AdminProfile.jsx):
+        #   { profile: {...}, education: {...}, experience: {...}, bank: {...} }
 
-        # ================= USER =================
-        user.email = profile.get("email", user.email)
-        user.phone = profile.get("phone", user.phone)
+        is_flat = "firstName" in raw or "designation" in raw or "employeeId" in raw
 
-        # ================= PROFILE =================
-        # Use fallback to existing value so partial updates don't wipe data
-        emp_profile.position = profile.get("position", emp_profile.position)
-        emp_profile.emp_type = profile.get("empType", emp_profile.emp_type)
-        emp_profile.department = profile.get("department", emp_profile.department)
-        emp_profile.gender = profile.get("gender", emp_profile.gender)
-        emp_profile.marital_status = profile.get("maritalStatus", emp_profile.marital_status)
-        emp_profile.blood_group = profile.get("bloodGroup", emp_profile.blood_group)
-        emp_profile.nationality = profile.get("nationality", emp_profile.nationality)
-        emp_profile.location = profile.get("location", emp_profile.location)
-        emp_profile.address = profile.get("address", emp_profile.address)
-        emp_profile.emergency_contact = profile.get("emergencyContactNumber", emp_profile.emergency_contact)
-        emp_profile.emergency_relationship = profile.get("relationship", emp_profile.emergency_relationship)
-        emp_profile.portfolio = education.get("portfolio", emp_profile.portfolio)
-        emp_profile.status = profile.get("status", emp_profile.status)
-        emp_profile.supervisor_id = profile.get("supervisor_id", emp_profile.supervisor_id)
-        emp_profile.hr_manager_id = profile.get("hr_manager_id", emp_profile.hr_manager_id)
+        def parse_date(date_str):
+            if not date_str:
+                return None
+            for fmt in ('%Y-%m-%d', '%d-%m-%Y', '%d/%m/%Y'):
+                try:
+                    return datetime.strptime(date_str, fmt).date()
+                except ValueError:
+                    continue
+            return None
 
-        # DOB — format: YYYY-MM-DD
-        dob = profile.get("dob")
-        if dob:
-            try:
-                emp_profile.dob = datetime.strptime(dob, "%Y-%m-%d").date()
-            except ValueError:
-                pass  # skip if format is invalid
+        def get_user_id_by_name(name):
+            if not name:
+                return None
+            parts = name.strip().split()
+            f_name = parts[0] if parts else ""
+            l_name = " ".join(parts[1:]) if len(parts) > 1 else ""
+            u = db.query(User).filter(
+                User.first_name == f_name,
+                User.last_name == l_name
+            ).first()
+            return u.id if u else None
 
-        # ================= EDUCATION =================
-        emp_profile.institution = education.get("institution", emp_profile.institution)
-        emp_profile.edu_location = education.get("location", emp_profile.edu_location)
-        emp_profile.qualification = education.get("qualification", emp_profile.qualification)
-        emp_profile.specialization = education.get("specialization", emp_profile.specialization)
-        emp_profile.skills = education.get("skills", emp_profile.skills)
+        if is_flat:
+            # ---- FLAT FORMAT (employee list / my team edit form) ----
+            user.first_name = raw.get('firstName', user.first_name)
+            user.last_name = raw.get('lastName', user.last_name)
+            user.email = raw.get('email', user.email)
+            user.phone = raw.get('phone', user.phone)
 
-        edu_start = education.get("eduStartDate")
-        edu_end = education.get("eduEndDate")
+            emp_profile.emp_id = raw.get('employeeId', emp_profile.emp_id)
+            emp_profile.gender = raw.get('gender', emp_profile.gender)
+            emp_profile.dob = parse_date(raw.get('dob')) or emp_profile.dob
+            emp_profile.marital_status = raw.get('maritalStatus', emp_profile.marital_status)
+            emp_profile.emp_type = raw.get('employmentType', emp_profile.emp_type)
+            emp_profile.department = raw.get('department', emp_profile.department)
+            emp_profile.position = raw.get('designation', emp_profile.position)
+            emp_profile.status = raw.get('status', emp_profile.status or 'Active')
+            emp_profile.joining_date = parse_date(raw.get('joiningDate')) or emp_profile.joining_date
+            emp_profile.blood_group = raw.get('bloodGroup', emp_profile.blood_group)
 
-        if edu_start:
-            try:
-                emp_profile.edu_start_date = datetime.strptime(edu_start, "%Y-%m-%d").date()
-            except ValueError:
-                pass
-        if edu_end:
-            try:
-                emp_profile.edu_end_date = datetime.strptime(edu_end, "%Y-%m-%d").date()
-            except ValueError:
-                pass
+            if raw.get('supervisor'):
+                resolved = get_user_id_by_name(raw.get('supervisor'))
+                if resolved:
+                    emp_profile.supervisor_id = resolved
+            if raw.get('hrManager'):
+                resolved = get_user_id_by_name(raw.get('hrManager'))
+                if resolved:
+                    emp_profile.hr_manager_id = resolved
 
-        # ================= EXPERIENCE =================
-        emp_profile.prev_company = experience.get("company", emp_profile.prev_company)
-        emp_profile.prev_job_title = experience.get("jobTitle", emp_profile.prev_job_title)
-        emp_profile.responsibilities = experience.get("responsibilities", emp_profile.responsibilities)
-        total_years = experience.get("totalYears")
-        if total_years is not None:
-            try:
-                emp_profile.total_experience_years = float(total_years)
-            except (ValueError, TypeError):
-                pass
+            # Education (flat)
+            emp_profile.institution = raw.get('institution', emp_profile.institution)
+            emp_profile.qualification = raw.get('course', emp_profile.qualification)
+            emp_profile.specialization = raw.get('specialization', emp_profile.specialization)
+            emp_profile.edu_start_date = parse_date(raw.get('eduStartDate')) or emp_profile.edu_start_date
+            emp_profile.edu_end_date = parse_date(raw.get('eduEndDate')) or emp_profile.edu_end_date
+            emp_profile.skills = raw.get('skills', emp_profile.skills)
+            emp_profile.portfolio = raw.get('portfolioLink', emp_profile.portfolio)
 
-        exp_start = experience.get("expStartDate")
-        exp_end = experience.get("expEndDate")
+            # Profile image (multipart upload)
+            if 'profileImage' in request.files:
+                file = request.files['profileImage']
+                if file and file.filename != '':
+                    import base64
+                    file_content = file.read()
+                    base64_encoded = base64.b64encode(file_content).decode('utf-8')
+                    mime_type = file.content_type if file.content_type else 'image/png'
+                    emp_profile.profile_image = f"data:{mime_type};base64,{base64_encoded}"
 
-        if exp_start and exp_start != "0001-01-01":
-            try:
-                emp_profile.exp_start_date = datetime.strptime(exp_start, "%Y-%m-%d").date()
-            except ValueError:
-                pass
+        else:
+            # ---- NESTED FORMAT (AdminProfile.jsx) ----
+            profile = raw.get("profile", {})
+            education = raw.get("education", {})
+            experience = raw.get("experience", {})
+            bank = raw.get("bank", {})
 
-        if exp_end and exp_end != "0001-01-01":
-            try:
-                emp_profile.exp_end_date = datetime.strptime(exp_end, "%Y-%m-%d").date()
-            except ValueError:
-                pass
+            user.email = profile.get("email", user.email)
+            user.phone = profile.get("phone", user.phone)
 
-        # ================= BANK =================
-        emp_profile.bank_name = bank.get("bankName", emp_profile.bank_name)
-        emp_profile.bank_branch = bank.get("branch", emp_profile.bank_branch)
-        emp_profile.account_number = bank.get("accountNumber", emp_profile.account_number)
-        emp_profile.ifsc_code = bank.get("ifsc", emp_profile.ifsc_code)
-        emp_profile.aadhaar_number = bank.get("aadhaar", emp_profile.aadhaar_number)
-        emp_profile.pan_number = bank.get("pan", emp_profile.pan_number)
+            emp_profile.position = profile.get("position", emp_profile.position)
+            emp_profile.emp_type = profile.get("empType", emp_profile.emp_type)
+            emp_profile.department = profile.get("department", emp_profile.department)
+            emp_profile.gender = profile.get("gender", emp_profile.gender)
+            emp_profile.marital_status = profile.get("maritalStatus", emp_profile.marital_status)
+            emp_profile.blood_group = profile.get("bloodGroup", emp_profile.blood_group)
+            emp_profile.nationality = profile.get("nationality", emp_profile.nationality)
+            emp_profile.location = profile.get("location", emp_profile.location)
+            emp_profile.address = profile.get("address", emp_profile.address)
+            emp_profile.emergency_contact = profile.get("emergencyContactNumber", emp_profile.emergency_contact)
+            emp_profile.emergency_relationship = profile.get("relationship", emp_profile.emergency_relationship)
+            emp_profile.portfolio = education.get("portfolio", emp_profile.portfolio)
+            emp_profile.status = profile.get("status", emp_profile.status)
+            emp_profile.supervisor_id = profile.get("supervisor_id", emp_profile.supervisor_id)
+            emp_profile.hr_manager_id = profile.get("hr_manager_id", emp_profile.hr_manager_id)
+
+            dob = profile.get("dob")
+            if dob:
+                emp_profile.dob = parse_date(dob) or emp_profile.dob
+
+            emp_profile.institution = education.get("institution", emp_profile.institution)
+            emp_profile.edu_location = education.get("location", emp_profile.edu_location)
+            emp_profile.qualification = education.get("qualification", emp_profile.qualification)
+            emp_profile.specialization = education.get("specialization", emp_profile.specialization)
+            emp_profile.skills = education.get("skills", emp_profile.skills)
+            emp_profile.edu_start_date = parse_date(education.get("eduStartDate")) or emp_profile.edu_start_date
+            emp_profile.edu_end_date = parse_date(education.get("eduEndDate")) or emp_profile.edu_end_date
+
+            emp_profile.prev_company = experience.get("company", emp_profile.prev_company)
+            emp_profile.prev_job_title = experience.get("jobTitle", emp_profile.prev_job_title)
+            emp_profile.responsibilities = experience.get("responsibilities", emp_profile.responsibilities)
+            total_years = experience.get("totalYears")
+            if total_years is not None:
+                try:
+                    emp_profile.total_experience_years = float(total_years)
+                except (ValueError, TypeError):
+                    pass
+            emp_profile.exp_start_date = parse_date(experience.get("expStartDate")) or emp_profile.exp_start_date
+            emp_profile.exp_end_date = parse_date(experience.get("expEndDate")) or emp_profile.exp_end_date
+
+            emp_profile.bank_name = bank.get("bankName", emp_profile.bank_name)
+            emp_profile.bank_branch = bank.get("branch", emp_profile.bank_branch)
+            emp_profile.account_number = bank.get("accountNumber", emp_profile.account_number)
+            emp_profile.ifsc_code = bank.get("ifsc", emp_profile.ifsc_code)
+            emp_profile.aadhaar_number = bank.get("aadhaar", emp_profile.aadhaar_number)
+            emp_profile.pan_number = bank.get("pan", emp_profile.pan_number)
 
         db.commit()
-
         return jsonify({"message": "Profile updated successfully"}), 200
 
     except Exception as e:
         db.rollback()
         print("❌ UPDATE ERROR:", str(e))
+        import traceback
+        traceback.print_exc()
         return jsonify({"message": str(e)}), 500
 
     finally:
