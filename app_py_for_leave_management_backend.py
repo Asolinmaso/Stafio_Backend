@@ -2913,6 +2913,7 @@ def add_employee():
             department=data.get('department'),
             position=data.get('designation'),
             status=data.get('status', 'Active'),
+            joining_date=joining_date,
             # Supervisor / HR (assuming we pass names for now, but ID is better)
             supervisor_id=get_user_id_by_name(data.get('supervisor')),
             hr_manager_id=get_user_id_by_name(data.get('hrManager')),
@@ -2988,6 +2989,7 @@ def update_employee(user_id):
         profile.department = data.get('department', profile.department)
         profile.position = data.get('designation', profile.position)
         profile.status = data.get('status', 'Active')
+        profile.joining_date = parse_date(data.get('joiningDate'))
         
         if data.get('supervisor'):
             profile.supervisor_id = get_user_id_by_name(data.get('supervisor'))

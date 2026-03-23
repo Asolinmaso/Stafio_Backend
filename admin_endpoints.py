@@ -8,6 +8,7 @@ from functools import wraps
 from datetime import datetime
 from sqlalchemy.exc import IntegrityError
 import json
+import urllib.parse
 from auth import jwt_required, role_required, permission_required
 
 # Create Blueprint for admin endpoints
@@ -256,8 +257,10 @@ def get_my_team():
                 "phone": user.phone or "",
                 "department": emp_profile.department if emp_profile and emp_profile.department else "Not Assigned",
                 "position": emp_profile.position if emp_profile and emp_profile.position else emp_profile.emp_type if emp_profile and emp_profile.emp_type else "Not Specified",
-                "joining_date": emp_profile.joining_date if emp_profile and emp_profile.joining_date else "",
-                "status": emp_profile.status if emp_profile and emp_profile.status else "Active"
+                "joining_date": emp_profile.joining_date.isoformat() if emp_profile and emp_profile.joining_date else "",
+                "status": emp_profile.status if emp_profile and emp_profile.status else "Active",
+                "empId": emp_profile.emp_id if emp_profile and emp_profile.emp_id else str(user.id),
+                "image": emp_profile.profile_image if emp_profile and emp_profile.profile_image else f"https://ui-avatars.com/api/?name={urllib.parse.quote((user.first_name or user.username) + ' ' + (user.last_name or ''))}&background=random"
             })
         
         # If no team members in team_members table, return all employees for admin
@@ -278,10 +281,11 @@ def get_my_team():
                         "phone": user.phone or "",
                         "department": emp_profile.department if emp_profile and emp_profile.department else "Not Assigned",
                         "position": emp_profile.position if emp_profile and emp_profile.position else emp_profile.emp_type if emp_profile and emp_profile.emp_type else "Not Specified",
-                        "joining_date": emp_profile.joining_date if emp_profile and emp_profile.joining_date else "",
-                        "status": emp_profile.status if emp_profile and emp_profile.status else "Active"
+                        "joining_date": emp_profile.joining_date.isoformat() if emp_profile and emp_profile.joining_date else "",
+                        "status": emp_profile.status if emp_profile and emp_profile.status else "Active",
+                        "empId": emp_profile.emp_id if emp_profile and emp_profile.emp_id else str(user.id),
+                        "image": emp_profile.profile_image if emp_profile and emp_profile.profile_image else f"https://ui-avatars.com/api/?name={urllib.parse.quote((user.first_name or user.username) + ' ' + (user.last_name or ''))}&background=random"
                     })
-        
         return jsonify(team_list), 200
         
     except Exception as e:
