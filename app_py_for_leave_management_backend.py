@@ -2117,7 +2117,7 @@ def get_leave_notification():
         leave = db.query(LeaveRequest).filter(
             LeaveRequest.user_id == int(user_id),
             LeaveRequest.status.in_(['approved', 'rejected'])
-        ).order_by(LeaveRequest.approval_date.desc()).first()
+        ).order_by(LeaveRequest.applied_date.desc()).first()
 
         if not leave:
             return jsonify({"notification": None}), 200
